@@ -20,6 +20,7 @@
 #include "game/gfxmemory.h"
 #include "game/gfxreplace.h"
 #include "game/bg.h"
+#include "game/bgdump.h"
 #include "game/portalconv.h"
 #include "game/stagetable.h"
 #include "game/env.h"
@@ -2155,6 +2156,11 @@ void bgTick(void)
 	if (g_Vars.currentplayerindex == 0) {
 		bgTickRooms();
 	}
+
+#ifndef PLATFORM_N64
+	// W1 reference instrumentation; no-op unless Debug.DumpRooms=1.
+	bgDumpTick();
+#endif
 
 	tickmode = g_Vars.tickmode;
 
