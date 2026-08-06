@@ -34,6 +34,11 @@ s32 g_BgDumpRooms = 0;
 // captures gfxdata == NULL for every room and proves nothing.
 #define BGDUMP_DELAY_TICKS 90
 
+// Hard ceiling: dump anyway after this many ticks even if the readiness test
+// below never passes, so a stage that never settles still yields evidence
+// rather than silence.
+#define BGDUMP_MAX_TICKS 1800
+
 static s32 g_BgDumpTicks = 0;
 static s32 g_BgDumpStage = -1;
 
@@ -109,6 +114,19 @@ void bgDumpRoomState(const char *tag)
 	fprintf(fp, "roomcount      = %d\n", (s32)g_Vars.roomcount);
 	fprintf(fp, "mplayerrunning = %d\n", (s32)g_Vars.mplayerisrunning);
 	fprintf(fp, "roomportalrecursionlimit = %d\n", (s32)g_Vars.roomportalrecursionlimit);
+
+	// Player position is the single most useful number for procedural work: a room
+	// whose bounding volume does not contain this point is culled before it is ever
+	// drawn, which looks exactly like a geometry bug.
+	if (g_Vars.currentplayer != NULL && g_Vars.currentplayer->prop != NULL) {
+		fprintf(fp, "player pos     = (%.3f, %.3f, %.3f)\n",
+				g_Vars.currentplayer->prop->pos.x,
+				g_Vars.currentplayer->prop->pos.y,
+				g_Vars.currentplayer->prop->pos.z);
+		fprintf(fp, "player room    = %d\n", (s32)g_Vars.currentplayer->prop->rooms[0]);
+	} else {
+		fprintf(fp, "player pos     = (no player)\n");
+	}
 	fprintf(fp, "\n");
 
 	fprintf(fp, "globals:\n");
@@ -262,8 +280,29 @@ void bgDumpTick(void)
 
 	g_BgDumpTicks++;
 
-	if (g_BgDumpTicks >= BGDUMP_DELAY_TICKS && g_Vars.roomcount > 0 && g_Rooms != NULL) {
-		bgDumpRoomState("post-load");
-		g_BgDumpTicks = -1;
+	if (g_BgDumpTicks < BGDUMP_DELAY_TICKS || g_Vars.roomcount <= 0 || g_Rooms == NULL) {
+		return;
 	}
+
+	// Readiness, not just elapsed time. The first attempt at this dumped at a
+	// fixed 90 ticks and caught Defection mid-init: one room loaded, and the
+	// PLAYER'S OWN room still had gfxdata == NULL. A dump taken then describes
+	// the loading screen, not the level. Wait until the player's room actually
+	// has geometry, which is the same condition that makes the numbers useful.
+	if (g_BgDumpTicks < BGDUMP_MAX_TICKS) {
+		s32 room;
+
+		if (g_Vars.currentplayer == NULL || g_Vars.currentplayer->prop == NULL) {
+			return;
+		}
+
+		room = g_Vars.currentplayer->prop->rooms[0];
+
+		if (room <= 0 || room >= g_Vars.roomcount || g_Rooms[room].gfxdata == NULL) {
+			return;
+		}
+	}
+
+	bgDumpRoomState(g_BgDumpTicks < BGDUMP_MAX_TICKS ? "player-room-loaded" : "timeout");
+	g_BgDumpTicks = -1;
 }
