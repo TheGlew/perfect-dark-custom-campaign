@@ -197,6 +197,14 @@ void bgProceduralBuildRoomMetrics(void)
 		// used for allocation sizing decisions elsewhere.
 		g_Rooms[r].gfxdatalen = 4096;
 
+		// Explicit: only the box ever has geometry. bgBuildTables already nulls these
+		// (bg.c:1919) but something on this path was observed writing a garbage
+		// pointer into unloaded rooms' gfxdata afterwards, so re-assert it here.
+		if (r != PROC_ROOM) {
+			g_Rooms[r].gfxdata = NULL;
+			g_Rooms[r].loaded240 = 0;
+		}
+
 		// No lights in W1. lightindex -1 is how the stock loader marks "no lights"
 		// (bg.c:2004), and it keeps g_Rooms[r].colours NULL so bgRenderRoomPass uses
 		// block->colours unchanged (bg.c:3245).

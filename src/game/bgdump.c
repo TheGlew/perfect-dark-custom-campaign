@@ -124,6 +124,25 @@ void bgDumpRoomState(const char *tag)
 				g_Vars.currentplayer->prop->pos.y,
 				g_Vars.currentplayer->prop->pos.z);
 		fprintf(fp, "player room    = %d\n", (s32)g_Vars.currentplayer->prop->rooms[0]);
+
+		// The containment test that decides whether a procedural room can render at
+		// all: a room whose volume does not hold the player is culled before it is
+		// ever drawn, and that is indistinguishable from bad geometry on screen.
+		{
+			s32 rn;
+			struct coord *p = &g_Vars.currentplayer->prop->pos;
+
+			for (rn = 1; rn < g_Vars.roomcount && rn < 8; rn++) {
+				bool inside = p->x >= g_Rooms[rn].bbmin[0] && p->x <= g_Rooms[rn].bbmax[0]
+						&& p->y >= g_Rooms[rn].bbmin[1] && p->y <= g_Rooms[rn].bbmax[1]
+						&& p->z >= g_Rooms[rn].bbmin[2] && p->z <= g_Rooms[rn].bbmax[2];
+
+				fprintf(fp, "  room %d contains player: %s   bbox (%.1f %.1f %.1f)..(%.1f %.1f %.1f)\n",
+						rn, inside ? "YES" : "no",
+						g_Rooms[rn].bbmin[0], g_Rooms[rn].bbmin[1], g_Rooms[rn].bbmin[2],
+						g_Rooms[rn].bbmax[0], g_Rooms[rn].bbmax[1], g_Rooms[rn].bbmax[2]);
+			}
+		}
 	} else {
 		fprintf(fp, "player pos     = (no player)\n");
 	}
@@ -209,7 +228,17 @@ void bgDumpRoomState(const char *tag)
 			fprintf(fp, "\n");
 		}
 
-		if (r->gfxdata != NULL) {
+		// gfxdata is only meaningful while the room is LOADED; that is the engine's
+		// own contract (bgLoadRoom sets both, bgUnloadRoom clears both). Room 0 is
+		// additionally a sentinel that no accessor ever touches.
+		//
+		// This guard is load-bearing, not defensive padding: on the procedural path
+		// every non-loaded room (including room 0) was observed holding the SAME
+		// garbage pointer 0x8000000000000 despite bg.c:1919 nulling it during table
+		// build, so something writes it afterwards. Walking it faults the dump.
+		// Tracked as an open finding; unloaded rooms are never rendered, so it does
+		// not currently affect the game.
+		if (i != 0 && r->loaded240 != 0 && r->gfxdata != NULL) {
 			struct roomgfxdata *g = r->gfxdata;
 			fprintf(fp, "    roomgfxdata @ %p:\n", (void *)g);
 			fprintf(fp, "      vertices=%p colours=%p numvertices=%d numcolours=%d\n",
