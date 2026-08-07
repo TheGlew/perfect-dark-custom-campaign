@@ -59,7 +59,14 @@
 
 #define PROC_NUMVERTS    8
 #define PROC_NUMCOLS     8
-#define PROC_NUMTRIS     12
+// 12 faces' worth of triangles, each emitted TWICE with opposite winding.
+// A room is viewed from the INSIDE, and the first version of this was visible from
+// the intro cutscene camera (outside the box) but rendered BLACK from the player's
+// position inside it -- the signature of backface culling. gSPClearGeometryMode
+// (G_CULL_BOTH) is emitted below and should already prevent that, but double-sided
+// geometry removes the question entirely rather than trusting the mode survives the
+// port's GBI translation layer. Cost is 12 extra triangles in one room.
+#define PROC_NUMTRIS     24
 #define PROC_MAXGFX      32
 
 // The box, in WORLD coordinates. Sized around Defection's measured player start
@@ -241,7 +248,7 @@ void bgProceduralLoadRoom(s32 roomnum)
 		{ -1,  1, -1 }, {  1,  1, -1 }, {  1,  1,  1 }, { -1,  1,  1 },
 	};
 
-	// 12 triangles, 2 per face. Culling is disabled below, so winding is not load-bearing.
+	// 12 faces, then the same 12 reversed so every surface is double-sided.
 	static const u8 tris[PROC_NUMTRIS][3] = {
 		{ 0, 1, 2 }, { 0, 2, 3 },   // floor
 		{ 4, 6, 5 }, { 4, 7, 6 },   // ceiling
@@ -249,6 +256,13 @@ void bgProceduralLoadRoom(s32 roomnum)
 		{ 3, 2, 6 }, { 3, 6, 7 },   // +z wall
 		{ 0, 3, 7 }, { 0, 7, 4 },   // -x wall
 		{ 1, 5, 6 }, { 1, 6, 2 },   // +x wall
+		// reversed winding
+		{ 2, 1, 0 }, { 3, 2, 0 },
+		{ 5, 6, 4 }, { 6, 7, 4 },
+		{ 1, 5, 0 }, { 5, 4, 0 },
+		{ 6, 2, 3 }, { 7, 6, 3 },
+		{ 7, 3, 0 }, { 4, 7, 0 },
+		{ 6, 5, 1 }, { 2, 6, 1 },
 	};
 
 	// Distinct per-corner colours: makes it unmistakable that what is on screen is
