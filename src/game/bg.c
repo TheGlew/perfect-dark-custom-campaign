@@ -21,6 +21,7 @@
 #include "game/gfxreplace.h"
 #include "game/bg.h"
 #include "game/bgdump.h"
+#include "game/bgprocedural.h"
 #include "game/portalconv.h"
 #include "game/stagetable.h"
 #include "game/env.h"
@@ -1503,6 +1504,19 @@ void bgReset(s32 stagenum)
 		g_StageIndex = 0;
 	}
 
+#ifndef PLATFORM_N64
+	// W1: procedural stages build their rooms in memory and never touch the bg file.
+	// var800a4920 must be 0 so bgBuildTables still runs its main block.
+	if (bgIsProceduralStage(stagenum)) {
+		var800a4920 = 0;
+		g_BgPrimaryData = NULL;
+		g_BgPrimaryData2 = NULL;
+		g_BgSection3 = 0;
+		bgProceduralReset(stagenum);
+		return;
+	}
+#endif
+
 	// Copy section 1 header to stack and parse into variables
 	header = (u8 *)ALIGN16((uintptr_t)headerbuffer);
 	bgLoadFile(header, 0, 0x40);
@@ -1919,6 +1933,16 @@ void bgBuildTables(s32 stagenum)
 
 		dyntexReset();
 
+#ifndef PLATFORM_N64
+		// W1: procedural stages supply their own room metrics instead of reading
+		// section 3. Everything after this block (lights, portals, bgInitRoom,
+		// bgExpandRoomToPortals) is a no-op with numlights 0 and no portals.
+		if (bgIsProceduralStage(stagenum)) {
+			bgProceduralBuildRoomMetrics();
+			goto procedural_metrics_done;
+		}
+#endif
+
 		// Load section 3 of the BG file. To do this, the header of the BG file
 		// must be loaded first as it contains the offset to section 3. Then
 		// section 3 is loaded and inflated. Data is read out of section 3, then
@@ -2010,6 +2034,11 @@ void bgBuildTables(s32 stagenum)
 
 		// Free the section 3 allocation
 		mempRealloc(section3, 0, MEMPOOL_STAGE);
+
+#ifndef PLATFORM_N64
+procedural_metrics_done:
+		;
+#endif
 
 		for (i = 1; i < g_Vars.roomcount; i++) {
 			roomInitLights(i);
@@ -2811,6 +2840,14 @@ void bgLoadRoom(s32 roomnum)
 		return;
 	}
 
+#ifndef PLATFORM_N64
+	// W1: procedural rooms are built, not streamed.
+	if (bgIsProceduralStage(g_Vars.stagenum)) {
+		bgProceduralLoadRoom(roomnum);
+		return;
+	}
+#endif
+
 	// Determine how much memory to allocate.
 	// It must be big enough to fit the biggest of:
 	// 1. The inflated room data and compressed room data
@@ -3079,6 +3116,14 @@ const char var7f1b75a4[] = " Passed";
 void bgUnloadRoom(s32 roomnum)
 {
 	u32 size;
+
+#ifndef PLATFORM_N64
+	// W1: procedural rooms are permanently resident. There is no file to stream
+	// them back in from, so unloading one leaves it permanently empty.
+	if (bgIsProceduralStage(g_Vars.stagenum) && bgProceduralKeepRoomLoaded(roomnum)) {
+		return;
+	}
+#endif
 
 	if (g_Rooms[roomnum].vtxbatches) {
 #ifdef PLATFORM_N64

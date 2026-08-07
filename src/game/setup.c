@@ -15,6 +15,7 @@
 #include "game/inv.h"
 #include "game/playermgr.h"
 #include "game/bg.h"
+#include "game/bgprocedural.h"
 #include "game/stagetable.h"
 #include "game/file.h"
 #include "game/lv.h"
@@ -1502,6 +1503,20 @@ void setupCreateProps(s32 stagenum)
 	withhovercars = !(stagenum == STAGE_EXTRACTION || stagenum == STAGE_DEFECTION)
 		|| !(g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0);
 
+#ifndef PLATFORM_N64
+	// W1: a procedural stage has replaced this level's geometry, but its setup file
+	// still describes the ORIGINAL level's props. Hovercars in particular fail to
+	// create (see the null guard at the OBJTYPE_HOVERCAR case below).
+	//
+	// NOTE: do NOT blunt-force this by zeroing withchrs/withobjs as well. Tried that
+	// first; setupCreateProps is also what establishes the PLAYER SPAWN, so removing
+	// every setup entity leaves the level unable to start and the game falls through
+	// to an "Error Saving Game" dialog that looks nothing like the actual cause.
+	if (bgIsProceduralStage(stagenum)) {
+		withhovercars = 0;
+	}
+#endif
+
 	escstepx = 0;
 	escstepy = 0;
 	g_Vars.textoverrides = NULL;
@@ -1910,11 +1925,17 @@ void setupCreateProps(s32 stagenum)
 						car->path = NULL;
 						car->nextstep = 0;
 
-						if (obj->flags & OBJFLAG_CHOPPER_INACTIVE) {
-							prop->pos.y = cdFindFloorYColourTypeAtPos(&prop->pos, prop->rooms, NULL, 0) + 30;
-						}
+						// setupCreateObject can fail and leave obj->prop NULL; the
+						// original code dereferences it unconditionally, which is a
+						// latent crash the stock levels never trigger because their
+						// geometry always accepts the placement.
+						if (prop != NULL) {
+							if (obj->flags & OBJFLAG_CHOPPER_INACTIVE) {
+								prop->pos.y = cdFindFloorYColourTypeAtPos(&prop->pos, prop->rooms, NULL, 0) + 30;
+							}
 
-						prop->forcetick = true;
+							prop->forcetick = true;
+						}
 					}
 					break;
 				case OBJTYPE_CHOPPER:
