@@ -29,6 +29,24 @@
 // Registered as Debug.DumpRooms. 0 = off.
 s32 g_BgDumpRooms = 0;
 
+// Registered as Debug.TracePlayer. 0 = off.
+//
+// Appends one line per half second to pd-playertrace-stage<NN>.txt: tick, position,
+// health, dead flag and current room. This exists because verifying "does the player
+// stand on the authored floor" by SCREENSHOT means guessing when to capture, and a
+// mission that ends in under a minute makes that a coin flip. Writing to a FILE makes
+// the answer deterministic and readable after the fact.
+//
+// It also sidesteps stdout entirely: stdout is block buffered and is lost completely
+// when the test harness kills the process, so stdout.log is empty on any clean run.
+s32 g_BgTracePlayer = 0;
+
+#define BGTRACE_INTERVAL 30
+
+static s32 g_BgTraceTicks = 0;
+static s32 g_BgTraceStage = -1;
+static FILE *g_BgTraceFile = NULL;
+
 // Number of ticks to wait after a stage becomes live before dumping. Rooms are
 // streamed in by bgLoadRoom AFTER bgBuildTables returns, so dumping too early
 // captures gfxdata == NULL for every room and proves nothing.
@@ -291,8 +309,68 @@ void bgDumpRoomState(const char *tag)
  * number of ticks after the stage changed, by which point the rooms the player
  * is standing in have been streamed in.
  */
+/**
+ * One line per half second describing where the player actually is. Flushed every
+ * write so the file is complete even when the process is killed.
+ */
+void bgTracePlayerTick(void)
+{
+	struct player *pl;
+	s32 room;
+
+	if (!g_BgTracePlayer) {
+		return;
+	}
+
+	if (g_Vars.stagenum != g_BgTraceStage) {
+		g_BgTraceStage = g_Vars.stagenum;
+		g_BgTraceTicks = 0;
+
+		if (g_BgTraceFile != NULL) {
+			fclose(g_BgTraceFile);
+			g_BgTraceFile = NULL;
+		}
+	}
+
+	if (++g_BgTraceTicks % BGTRACE_INTERVAL != 0) {
+		return;
+	}
+
+	pl = g_Vars.currentplayer;
+
+	if (pl == NULL || pl->prop == NULL) {
+		return;
+	}
+
+	if (g_BgTraceFile == NULL) {
+		char path[256];
+		sprintf(path, "pd-playertrace-stage%02x.txt", (s32)g_Vars.stagenum);
+		g_BgTraceFile = fopen(path, "w");
+
+		if (g_BgTraceFile == NULL) {
+			g_BgTracePlayer = 0;
+			return;
+		}
+
+		fprintf(g_BgTraceFile, "# tick  pos(x,y,z)  health  dead  room  roomcount\n");
+	}
+
+	room = pl->prop->rooms[0];
+
+	fprintf(g_BgTraceFile, "%6d  %9.2f %9.2f %9.2f  %.3f  %d  %4d  %d\n",
+			g_BgTraceTicks,
+			pl->prop->pos.x, pl->prop->pos.y, pl->prop->pos.z,
+			pl->bondhealth, (s32)pl->isdead, room, (s32)g_Vars.roomcount);
+
+	fflush(g_BgTraceFile);
+}
+
 void bgDumpTick(void)
 {
+#ifndef PLATFORM_N64
+	bgTracePlayerTick();
+#endif
+
 	if (!g_BgDumpRooms) {
 		return;
 	}

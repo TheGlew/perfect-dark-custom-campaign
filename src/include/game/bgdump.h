@@ -7,7 +7,11 @@
 // Debug.DumpRooms config var. 0 = off.
 extern s32 g_BgDumpRooms;
 
+// Debug.TracePlayer config var. 0 = off.
+extern s32 g_BgTracePlayer;
+
 void bgDumpRoomState(const char *tag);
 void bgDumpTick(void);
+void bgTracePlayerTick(void);
 
 #endif
