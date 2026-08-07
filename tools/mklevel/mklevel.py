@@ -234,7 +234,16 @@ class Level:
             tiles = []
             for boxspec in room.get('boxes', []):
                 tiles += Box(boxspec).collision_tiles()
-            by_index[self.room_index(room)] = tiles
+
+            # Collision is looked up PER ROOM: collision.c:989 bounds a room's tiles with
+            # g_TileRooms[roomnum]..[roomnum+1]. While a procedural level still carries the
+            # original stage's pads and setup, the engine may consult a room index that is
+            # ours only in the geometry sense -- the stock spawn pad belongs to the original
+            # room 2, but our box is room 1, and a room with no tiles reads as "no floor".
+            # collisionRooms lets one authored volume publish its collision into several
+            # room indices until the level owns its own pads (W4).
+            for idx in room.get('collisionRooms', [self.room_index(room)]):
+                by_index[int(idx)] = tiles
 
         rooms = {}
         for i in range(self.roomcount):
