@@ -73,9 +73,26 @@ struct var8009dd78 var8009dd78[10];
 u16 *g_PortalXluFracs;
 s32 g_NumPortalXluFracs;
 
+/**
+ * These only ever checked portalnum >= 0, with no upper bound and no null check on
+ * the array. Stock levels never trip it because an object's portalnum always refers
+ * to a portal that level actually has.
+ *
+ * A procedural level has ZERO portals, so g_PortalXluFracs is empty while the
+ * surviving stock setup's glass and door objects still carry portal numbers from the
+ * ORIGINAL level. Freeing them at level stop then writes out of bounds and crashes:
+ *   portalSetXluFrac <- objFree <- objFreePermanently <- objsStop <- lvStop
+ * which presents to the player as "the game crashed when I saved", because lvStop
+ * runs when the mission ends.
+ */
+static bool portalXluFracIsValid(s32 portalnum)
+{
+	return g_PortalXluFracs != NULL && portalnum >= 0 && portalnum < g_NumPortalXluFracs;
+}
+
 void portalSetXluFrac2(s32 portalnum, f32 frac)
 {
-	if (portalnum >= 0) {
+	if (portalXluFracIsValid(portalnum)) {
 		u8 value = (u32)(255 * frac);
 		value <<= 0;
 		g_PortalXluFracs[portalnum] = (g_PortalXluFracs[portalnum] & 0xff00) | value;
@@ -84,7 +101,7 @@ void portalSetXluFrac2(s32 portalnum, f32 frac)
 
 void portalSetXluFrac(s32 portalnum, f32 frac)
 {
-	if (portalnum >= 0) {
+	if (portalXluFracIsValid(portalnum)) {
 		u8 value = (u32)(15 * frac) & 0xf;
 		g_PortalXluFracs[portalnum] = (g_PortalXluFracs[portalnum] & 0xf0ff) | (value << 8);
 	}
@@ -92,14 +109,28 @@ void portalSetXluFrac(s32 portalnum, f32 frac)
 
 f32 portalGetXluFrac2(s32 arg0)
 {
-	f32 value = (g_PortalXluFracs[arg0] & 0xff) * 0.0039215688593686f;
+	f32 value;
+
+	// Same out-of-range hazard as the setters above; a portal-less level would read
+	// out of bounds here instead of writing.
+	if (!portalXluFracIsValid(arg0)) {
+		return 0;
+	}
+
+	value = (g_PortalXluFracs[arg0] & 0xff) * 0.0039215688593686f;
 
 	return value;
 }
 
 f32 portalGetXluFrac(s32 arg0)
 {
-	f32 value = ((g_PortalXluFracs[arg0] & 0xf00) >> 8) * 0.06666667f;
+	f32 value;
+
+	if (!portalXluFracIsValid(arg0)) {
+		return 0;
+	}
+
+	value = ((g_PortalXluFracs[arg0] & 0xf00) >> 8) * 0.06666667f;
 
 	return value;
 }
