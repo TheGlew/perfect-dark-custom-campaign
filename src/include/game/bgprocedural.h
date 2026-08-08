@@ -8,6 +8,5 @@ bool bgIsProceduralStage(s32 stagenum);
 void bgProceduralReset(s32 stagenum);
 void bgProceduralBuildRoomMetrics(void);
 void bgProceduralLoadRoom(s32 roomnum);
-bool bgProceduralKeepRoomLoaded(s32 roomnum);
 
 #endif

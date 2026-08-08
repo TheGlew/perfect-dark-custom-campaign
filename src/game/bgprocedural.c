@@ -373,11 +373,10 @@ void bgProceduralLoadRoom(s32 roomnum)
 #endif
 }
 
-/**
- * Procedural rooms are permanently resident: there is no file to stream back in, so
- * unloading one would leave a permanently empty room.
+/*
+ * bgProceduralKeepRoomLoaded() used to live here and made procedural rooms permanently
+ * resident. It is GONE deliberately: skipping bgUnloadRoom also skipped the frees that
+ * NULL vtxbatches and gfxdata, which crashed the game on level restart. See the note in
+ * bgUnloadRoom. Rooms are rebuilt on demand instead, which is what bgLoadRoom's
+ * interception already provides.
  */
-bool bgProceduralKeepRoomLoaded(s32 roomnum)
-{
-	return roomnum == PROC_ROOM;
-}

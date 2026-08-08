@@ -1920,6 +1920,15 @@ void bgBuildTables(s32 stagenum)
 			g_Rooms[i].gfxdatalen = -1;
 			g_Rooms[i].opawallhits = NULL;
 			g_Rooms[i].xluwallhits = NULL;
+
+			// Stock code never cleared these here; it relies on the memp heap being
+			// zeroed, which only holds on the FIRST stage load. On a later load
+			// g_Rooms is reallocated over used pool memory, so a stale non-NULL
+			// vtxbatches makes bgFindRoomVtxBatches skip its rebuild and render from
+			// a dangling pointer. Clearing them costs nothing and removes a whole
+			// class of load-order fragility.
+			g_Rooms[i].vtxbatches = NULL;
+			g_Rooms[i].numvtxbatches = 0;
 		}
 
 		roomsReset();
@@ -3117,13 +3126,20 @@ void bgUnloadRoom(s32 roomnum)
 {
 	u32 size;
 
-#ifndef PLATFORM_N64
-	// W1: procedural rooms are permanently resident. There is no file to stream
-	// them back in from, so unloading one leaves it permanently empty.
-	if (bgIsProceduralStage(g_Vars.stagenum) && bgProceduralKeepRoomLoaded(roomnum)) {
-		return;
-	}
-#endif
+	// NOTE: procedural rooms deliberately go through the NORMAL teardown.
+	//
+	// An earlier version early-returned here to keep them "permanently resident",
+	// on the reasoning that there is no file to stream them back from. That was
+	// wrong and caused a crash on level RESTART: this function is what frees
+	// vtxbatches and gfxdata and NULLs both, so skipping it leaked them AND left
+	// g_Rooms[roomnum].vtxbatches pointing at freed memory. bgBuildTables' init
+	// loop clears gfxdata but NOT vtxbatches, and bgFindRoomVtxBatches only
+	// rebuilds when vtxbatches is NULL -- so the next load skipped the rebuild and
+	// rendered from a dangling pointer.
+	//
+	// Residency was never needed: bgLoadRoom is intercepted for procedural stages,
+	// so a reload simply rebuilds the room. Both allocations come from sysMemAlloc,
+	// which is exactly what the frees below expect.
 
 	if (g_Rooms[roomnum].vtxbatches) {
 #ifdef PLATFORM_N64
