@@ -157,6 +157,10 @@ endif()
 include_directories("${CMAKE_SOURCE_DIR}/include")
 include_directories("${CMAKE_SOURCE_DIR}/include/PR")
 include_directories("${CMAKE_SOURCE_DIR}/src/include")
+# So bgprocedural.c can include "generated/<level>_geom.inc.c", which tools/mklevel writes
+# to src/generated/. Distinct from the binary-dir generated tree just below, which holds
+# the asset toolchain's per-ROMID headers.
+include_directories("${CMAKE_SOURCE_DIR}/src")
 include_directories("${CMAKE_BINARY_DIR}/src/generated/${ROMID}")
 include_directories("${CMAKE_SOURCE_DIR}/src/lib/ultra/audio")
 include_directories("${CMAKE_SOURCE_DIR}/port/include")

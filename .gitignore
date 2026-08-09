@@ -20,7 +20,14 @@ src/assets/*/files/ob/ob_mid.seg
 src/assets/*/fonts/*.bin
 src/assets/*/sequences/*.seq
 src/assets/*/textures/*.bin
-src/generated
+# Contents, not the directory itself: git cannot re-include a file whose parent DIRECTORY
+# is excluded, so `src/generated` alone would make the negation below silently useless.
+src/generated/*
+# ...except our level geometry. src/generated is ignored because the ASSET TOOLCHAIN
+# regenerates it per ROMID during a build. Our level geometry lands in the same directory
+# (tools/mklevel writes it there) but is a different kind of artifact: bgprocedural.c
+# includes it at compile time, so an ignored copy means a clean checkout does not build.
+!src/generated/*_geom.inc.c
 tools/mkrom/mkrom
 /.vs
 CppProperties.json
