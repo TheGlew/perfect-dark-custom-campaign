@@ -139,14 +139,46 @@ static void bgDumpBlockChain(FILE *fp, struct roomblock *block, s32 depth, const
 
 			// First few GBI command words, so the procedural display list can be
 			// compared against a real one command for command.
+			// The WHOLE list, walked to G_ENDDL, with G_VTX and G_TRI4 decoded.
+			//
+			// This used to print a fixed first 8 words, which is exactly the state-setup
+			// prefix and stops right before the interesting part. That truncation hid
+			// which triangles were actually emitted while a rendering bug was being
+			// chased through theory instead of evidence.
 			if (block->gdl != NULL) {
 				s32 w;
-				fprintf(fp, "        %*s  gdl words:", depth * 2, "");
-				for (w = 0; w < 8; w++) {
-					fprintf(fp, " %08x %08x",
-							(u32)block->gdl[w].words.w0, (u32)block->gdl[w].words.w1);
+				fprintf(fp, "        %*s  gdl:\n", depth * 2, "");
+
+				for (w = 0; w < 256; w++) {
+					u32 w0 = (u32)block->gdl[w].words.w0;
+					u32 w1 = (u32)block->gdl[w].words.w1;
+					u32 op = w0 >> 24;
+
+					fprintf(fp, "        %*s    [%2d] %08x %08x", depth * 2, "", w, w0, w1);
+
+					if (op == (u32)(G_VTX & 0xff)) {
+						fprintf(fp, "  G_VTX n=%d seg=%08x",
+								(s32)(((w0 >> 12) & 0xff) + 1), w1);
+					} else if (op == (u32)(G_TRI4 & 0xff)) {
+						s32 k;
+						fprintf(fp, "  G_TRI4");
+						for (k = 0; k < 4; k++) {
+							s32 x = (w1 >> (k * 8)) & 0xf;
+							s32 y = (w1 >> (k * 8 + 4)) & 0xf;
+							s32 z = (w0 >> (k * 4)) & 0xf;
+							fprintf(fp, " (%d,%d,%d)%s", x, y, z,
+									(x || y || z) ? "" : "[skipped]");
+						}
+					} else if (op == (u32)(G_ENDDL & 0xff)) {
+						fprintf(fp, "  G_ENDDL");
+					}
+
+					fprintf(fp, "\n");
+
+					if (op == (u32)(G_ENDDL & 0xff)) {
+						break;
+					}
 				}
-				fprintf(fp, "\n");
 			}
 		} else {
 			fprintf(fp, "        %*s  parent child=%p unk0c=%p\n",

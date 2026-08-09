@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/room.h"
+#include "game/bgprocedural.h"
 #include "bss.h"
 #include "lib/mtx.h"
 #include "data.h"
@@ -108,16 +109,31 @@ void roomPopulateMtx(Mtxf *mtx, s32 roomnum)
 	// These are rooms that are always active, such as the moon in Defection.
 	// This is probably making those rooms always drawn a certain distance away
 	// relative to the camera, so the moon never gets bigger as you go closer.
-	if (((stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
-					|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
-					|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
-					|| stagenum == g_Stages[STAGEINDEX_MAIANSOS].id) && roomnum == 0x0f)
-			|| ((stagenum == g_Stages[STAGEINDEX_SKEDARRUINS].id
-					|| stagenum == g_Stages[STAGEINDEX_WAR].id) && roomnum == 0x02)
-			|| ((stagenum == g_Stages[STAGEINDEX_DEFECTION].id
-					|| stagenum == g_Stages[STAGEINDEX_EXTRACTION].id
-					|| stagenum == g_Stages[STAGEINDEX_MBR].id) && roomnum == 0x01)
-			|| (stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id && roomnum == 0x71)) {
+	//
+	// A PROCEDURAL STAGE MUST NEVER TAKE THIS PATH. Our authored room is room 1 of
+	// Defection, which is exactly the moon's slot, so the engine was giving our box the
+	// skybox transform: drawn at a fixed distance from the camera instead of at its world
+	// position. The player could never be inside it, and only the surface facing them was
+	// ever visible.
+	//
+	// It looked like a geometry bug and was not: the display list, vertices and windings
+	// were all correct, and COLLISION was correct throughout, because tiles are world
+	// space and never go through this matrix. That split -- right collision, wrong
+	// rendering -- is the signature of a transform problem rather than a geometry one.
+	// The whole OR-group is parenthesised so the procedural guard covers EVERY clause.
+	// Written as `!proc && A || B || C` it would guard only A, because && binds tighter
+	// than ||, and the Defection clause that caused this bug is C.
+	if (!bgIsProceduralStage(stagenum)
+			&& (((stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
+							|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
+							|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
+							|| stagenum == g_Stages[STAGEINDEX_MAIANSOS].id) && roomnum == 0x0f)
+					|| ((stagenum == g_Stages[STAGEINDEX_SKEDARRUINS].id
+							|| stagenum == g_Stages[STAGEINDEX_WAR].id) && roomnum == 0x02)
+					|| ((stagenum == g_Stages[STAGEINDEX_DEFECTION].id
+							|| stagenum == g_Stages[STAGEINDEX_EXTRACTION].id
+							|| stagenum == g_Stages[STAGEINDEX_MBR].id) && roomnum == 0x01)
+					|| (stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id && roomnum == 0x71))) {
 		mtx->m[3][0] = g_BgRooms[roomnum].pos.x;
 		mtx->m[3][1] = g_BgRooms[roomnum].pos.y;
 		mtx->m[3][2] = g_BgRooms[roomnum].pos.z;
