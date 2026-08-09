@@ -127,8 +127,47 @@ static void procSetCmdType(void *cmd, u8 type)
 }
 
 /**
- * Two terminators, never one, and never NULL. See hazard 2 in the file header.
+ * The mission-logic AI list: what actually ENDS the mission.
+ *
+ * Completing every objective does NOT end a mission by itself. objectiveIsAllComplete has
+ * exactly one consumer in the whole engine, aiIfAllObjectivesComplete (chraicommands.c:5571),
+ * which is an AI LIST command. Stock stages ship a background list that polls it; without
+ * one, a fully completed mission simply runs forever.
+ *
+ * AI commands are TWO-BYTE BIG-ENDIAN opcodes (chrai.c:657 reads (cmd[0] << 8) + cmd[1]),
+ * followed by their operands:
+ *
+ *   0002 <label>   label            3 bytes
+ *   00f7 <label>   if all objectives complete, jump to label   3 bytes
+ *   0003           yield to the next tick                      2 bytes
+ *   0001 <label>   jump to label, searching from offset 0      3 bytes
+ *   00dc           end the level                               2 bytes
+ *   0004           end of list                                 2 bytes
+ *
+ * The yield is what makes this a poll rather than an infinite loop inside one tick.
  */
+static u8 g_ProcMissionAilist[] = {
+	0x00, 0x02, 0x01,        // label 1
+	0x00, 0xf7, 0x02,        //   if all objectives complete -> label 2
+	0x00, 0x03,              //   yield
+	0x00, 0x01, 0x01,        //   goto label 1
+	0x00, 0x02, 0x02,        // label 2
+	0x00, 0xdc,              //   end level
+	0x00, 0x04,              // end of list
+};
+
+/**
+ * Our ailists: the mission logic, then a terminator.
+ *
+ * The id must be >= 0x1000 for stageAllocateBgChrs to give the list a background chr to run
+ * on (game_00b820.c:50-56); a list with a smaller id is only reachable by a real chr, and
+ * this one has to run with no chrs in the level at all.
+ *
+ * Two entries, never one, and never NULL: the sort at setup.c:1367 reads ailists[i + 1]
+ * with no guard on the array itself. See hazard 2 in the file header.
+ */
+#define PROC_MISSION_AILIST_ID 0x1000
+
 static struct ailist g_ProcAilists[2];
 
 /**
@@ -271,10 +310,10 @@ void setupProceduralLoad(s32 stagenum)
 	intro = mempAlloc(ALIGN16(sizeof(g_ProcIntroTemplate)), MEMPOOL_STAGE);
 	memcpy(intro, g_ProcIntroTemplate, sizeof(g_ProcIntroTemplate));
 
-	for (i = 0; i < 2; i++) {
-		g_ProcAilists[i].list = NULL;
-		g_ProcAilists[i].id = 0;
-	}
+	g_ProcAilists[0].list = g_ProcMissionAilist;
+	g_ProcAilists[0].id = PROC_MISSION_AILIST_ID;
+	g_ProcAilists[1].list = NULL;
+	g_ProcAilists[1].id = 0;
 
 	g_StageSetup.props = (u32 *)props;
 	g_StageSetup.intro = intro;
