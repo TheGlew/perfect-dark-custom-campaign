@@ -51,6 +51,7 @@
 #include <ultra64.h>
 #include <string.h>
 #include "constants.h"
+#include "lang.h"
 #include "game/setup.h"
 #include "game/setupprocedural.h"
 #include "bss.h"
@@ -85,21 +86,32 @@ static const s32 g_ProcIntroTemplate[] = {
 };
 
 /**
- * The props list.
+ * The mission: one objective, completed by being in a room.
  *
- * Only the command header is modelled, because that is all a terminator needs and every
- * command begins with it. The engine walks props with `while (obj->type != OBJTYPE_END)`,
- * so a single END is a complete, legal, empty props list.
+ * OBJECTIVETYPE_ENTERROOM's field is NAMED `pad` (types.h:4346-4351) but a value below
+ * 10000 is used AS A ROOM NUMBER: chrGetPadRoom returns it unchanged and only treats it
+ * as a pad at 10000 and above (chraction.c:14118-14139). So this needs no pad, and the
+ * field name is the trap.
  */
-struct proccmdheader {
-	u16 extrascale;
-	u8 hidden2;
-	u8 type;
-};
+#define PROC_OBJECTIVE_ROOM         1
+#define PROC_OBJECTIVE_INDEX        0
+#define PROC_OBJECTIVE_TEXT         L_AME_016
+#define PROC_OBJECTIVE_DIFFICULTIES (DIFFBIT_A | DIFFBIT_SA | DIFFBIT_PA | DIFFBIT_PD)
 
-static const struct proccmdheader g_ProcPropsTemplate[] = {
-	{ 0, 0, OBJTYPE_END },
-};
+/**
+ * Set a props command's TYPE.
+ *
+ * The type is byte 3 of the command's first word, not byte 0. That is not a quirk of this
+ * file: struct defaultobj declares { u16 extrascale; u8 hidden2; u8 type; }
+ * (types.h:1464-1467), and the port's own preprocessor copies that byte VERBATIM while
+ * byte-swapping everything around it (convertDefaultObjHdr, filesetup.c:148-166). Writing
+ * byte 3 directly therefore agrees with both readers, on either endianness, where
+ * assembling a whole word by hand would be correct on exactly one.
+ */
+static void procSetCmdType(void *cmd, u8 type)
+{
+	((u8 *)cmd)[3] = type;
+}
 
 /**
  * Two terminators, never one, and never NULL. See hazard 2 in the file header.
@@ -120,13 +132,51 @@ bool setupIsProceduralStage(s32 stagenum)
  */
 void setupProceduralLoad(s32 stagenum)
 {
-	void *props;
+	struct objective *objective;
+	struct criteria_roomentered *enterroom;
+	u32 *props;
+	u32 *p;
+	s32 propwords;
 	s32 *intro;
 	s32 i;
 
-	// A FRESH copy per load. See hazard 1 in the file header.
-	props = mempAlloc(ALIGN16(sizeof(g_ProcPropsTemplate)), MEMPOOL_STAGE);
-	memcpy(props, g_ProcPropsTemplate, sizeof(g_ProcPropsTemplate));
+	// The props list is BUILT FRESH each load rather than copied from a template, which
+	// is a stronger form of the same guarantee hazard 1 asks for: there is no master
+	// copy for the engine's in-place rewrites to corrupt.
+	//
+	// Command sizes come from the same sizeof arithmetic setupGetCmdLength uses to WALK
+	// them (setuputils.c:19-60), so the layout cannot drift from the walker. Writing the
+	// commands as a packed C struct would look tidier and would break the moment the
+	// compiler inserted padding, because criteria_roomentered carries a pointer and is
+	// therefore 8-byte aligned on this target.
+	propwords = sizeof(struct objective) / sizeof(u32)
+			+ sizeof(struct criteria_roomentered) / sizeof(u32)
+			+ 1   // ENDOBJECTIVE
+			+ 1;  // END
+
+	props = mempAlloc(ALIGN16(propwords * sizeof(u32)), MEMPOOL_STAGE);
+	memset(props, 0, propwords * sizeof(u32));
+
+	p = props;
+
+	objective = (struct objective *)p;
+	procSetCmdType(objective, OBJTYPE_BEGINOBJECTIVE);
+	objective->index = PROC_OBJECTIVE_INDEX;
+	objective->text = PROC_OBJECTIVE_TEXT;
+	objective->difficulties = PROC_OBJECTIVE_DIFFICULTIES;
+	p += sizeof(struct objective) / sizeof(u32);
+
+	enterroom = (struct criteria_roomentered *)p;
+	procSetCmdType(enterroom, OBJECTIVETYPE_ENTERROOM);
+	enterroom->pad = PROC_OBJECTIVE_ROOM;
+	enterroom->status = OBJECTIVE_INCOMPLETE;
+	enterroom->next = NULL;
+	p += sizeof(struct criteria_roomentered) / sizeof(u32);
+
+	procSetCmdType(p, OBJTYPE_ENDOBJECTIVE);
+	p += 1;
+
+	procSetCmdType(p, OBJTYPE_END);
 
 	// The intro list is copied for the same reason, even though nothing is known to
 	// write to it: the cost is a few bytes and the alternative is discovering the

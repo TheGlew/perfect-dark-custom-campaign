@@ -13,9 +13,13 @@ extern s32 g_BgTracePlayer;
 // Debug.DumpPads config var. 0 = off.
 extern s32 g_BgDumpPads;
 
+// Debug.TraceObjectives config var. 0 = off.
+extern s32 g_BgTraceObjectives;
+
 void bgDumpRoomState(const char *tag);
 void bgDumpTick(void);
 void bgTracePlayerTick(void);
 void bgDumpPadsTick(void);
+void bgTraceObjectivesTick(void);
 
 #endif

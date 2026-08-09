@@ -19,6 +19,7 @@
 #include "game/bg.h"
 #include "game/bgdump.h"
 #include "game/pad.h"
+#include "game/objectives.h"
 #include "bss.h"
 #include "data.h"
 #include "types.h"
@@ -69,6 +70,25 @@ static s32 g_BgPadsTicks = 0;
 static s32 g_BgPadsStage = -1;
 
 extern struct padsfileheader *g_PadsFile;
+
+// Registered as Debug.TraceObjectives. 0 = off.
+//
+// Logs one line per objective STATUS TRANSITION to pd-objectives-stage<NN>.txt, plus the
+// aggregate objectiveIsAllComplete(). Transitions only, because a per-tick dump of a value
+// that changes once buries the one line that matters.
+//
+// This exists because "the objective completed" is not observable from a screenshot with
+// any confidence, and the alternative evidence (the pause-menu objective list) needs input
+// the harness will not send.
+s32 g_BgTraceObjectives = 0;
+
+#define BGOBJ_MAX 8
+
+static s32 g_BgObjStage = -1;
+static s32 g_BgObjTicks = 0;
+static s32 g_BgObjLast[BGOBJ_MAX];
+static s32 g_BgObjLastAll = -1;
+static FILE *g_BgObjFile = NULL;
 
 // Number of ticks to wait after a stage becomes live before dumping. Rooms are
 // streamed in by bgLoadRoom AFTER bgBuildTables returns, so dumping too early
@@ -462,11 +482,85 @@ void bgDumpPadsTick(void)
 	fclose(fp);
 }
 
+/**
+ * Log objective status transitions, so "did the objective complete" has a file answer.
+ */
+void bgTraceObjectivesTick(void)
+{
+	s32 count;
+	s32 all;
+	s32 status;
+	s32 i;
+
+	if (!g_BgTraceObjectives) {
+		return;
+	}
+
+	if (g_Vars.stagenum != g_BgObjStage) {
+		g_BgObjStage = g_Vars.stagenum;
+		g_BgObjTicks = 0;
+		g_BgObjLastAll = -1;
+
+		for (i = 0; i < BGOBJ_MAX; i++) {
+			g_BgObjLast[i] = -1;
+		}
+
+		if (g_BgObjFile != NULL) {
+			fclose(g_BgObjFile);
+			g_BgObjFile = NULL;
+		}
+	}
+
+	g_BgObjTicks++;
+
+	if (g_BgObjFile == NULL) {
+		char path[256];
+		sprintf(path, "pd-objectives-stage%02x.txt", (s32)g_Vars.stagenum);
+		g_BgObjFile = fopen(path, "w");
+
+		if (g_BgObjFile == NULL) {
+			g_BgTraceObjectives = 0;
+			return;
+		}
+
+		fprintf(g_BgObjFile, "# objective status transitions. 0=incomplete 1=complete 2=failed\n");
+		fprintf(g_BgObjFile, "# tick  event\n");
+	}
+
+	count = objectiveGetCount();
+
+	if (count > BGOBJ_MAX) {
+		count = BGOBJ_MAX;
+	}
+
+	for (i = 0; i < count; i++) {
+		status = objectiveCheck(i);
+
+		if (status != g_BgObjLast[i]) {
+			fprintf(g_BgObjFile, "%6d  objective %d: %d -> %d  (difficultybits 0x%02x)\n",
+					g_BgObjTicks, i, g_BgObjLast[i], status,
+					(u32)objectiveGetDifficultyBits(i));
+			g_BgObjLast[i] = status;
+			fflush(g_BgObjFile);
+		}
+	}
+
+	all = objectiveIsAllComplete() ? 1 : 0;
+
+	if (all != g_BgObjLastAll) {
+		fprintf(g_BgObjFile, "%6d  objectiveIsAllComplete: %d -> %d  (count %d)\n",
+				g_BgObjTicks, g_BgObjLastAll, all, (s32)objectiveGetCount());
+		g_BgObjLastAll = all;
+		fflush(g_BgObjFile);
+	}
+}
+
 void bgDumpTick(void)
 {
 #ifndef PLATFORM_N64
 	bgTracePlayerTick();
 	bgDumpPadsTick();
+	bgTraceObjectivesTick();
 #endif
 
 	if (!g_BgDumpRooms) {

@@ -174,6 +174,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Debug.DumpRooms", &g_BgDumpRooms, 0, 1);
 	configRegisterInt("Debug.TracePlayer", &g_BgTracePlayer, 0, 1);
 	configRegisterInt("Debug.DumpPads", &g_BgDumpPads, 0, 1);
+	configRegisterInt("Debug.TraceObjectives", &g_BgTraceObjectives, 0, 1);
 	for (s32 j = 0; j < MAX_PLAYERS; ++j) {
 		const s32 i = j + 1;
 		configRegisterFloat(strFmt("Game.Player%d.FovY", i), &g_PlayerExtCfg[j].fovy, 5.f, 175.f);
