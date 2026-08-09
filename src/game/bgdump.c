@@ -18,6 +18,7 @@
 #include "constants.h"
 #include "game/bg.h"
 #include "game/bgdump.h"
+#include "game/pad.h"
 #include "bss.h"
 #include "data.h"
 #include "types.h"
@@ -41,11 +42,33 @@ s32 g_BgDumpRooms = 0;
 // when the test harness kills the process, so stdout.log is empty on any clean run.
 s32 g_BgTracePlayer = 0;
 
+// Registered as Debug.DumpPads. 0 = off.
+//
+// Writes pd-pads-stage<NN>.txt once per stage load: every pad's number, unpacked
+// position, ROOM and flags.
+//
+// The room column is the reason this exists. A pad's room is NOT authored: the pads
+// JSON has no room field and mkpads packs 0x3ff0 into every header, which padUnpack
+// sign-extends to -1 (pad.c:35). setupPreparePads then derives the real room from the
+// pad's POSITION, via bgFindRoomsByPos and cdFindFloorRoomAtPos, and writes it back
+// (setuppads.c:52-77).
+//
+// So a pad that reads -1 here was authored outside the room geometry or over no floor,
+// and the fault is in its COORDINATES, not in the C. That also makes this dump an
+// independent check on the procedural geometry and the transpiled collision: room
+// derivation consumes both.
+s32 g_BgDumpPads = 0;
+
 #define BGTRACE_INTERVAL 30
 
 static s32 g_BgTraceTicks = 0;
 static s32 g_BgTraceStage = -1;
 static FILE *g_BgTraceFile = NULL;
+
+static s32 g_BgPadsTicks = 0;
+static s32 g_BgPadsStage = -1;
+
+extern struct padsfileheader *g_PadsFile;
 
 // Number of ticks to wait after a stage becomes live before dumping. Rooms are
 // streamed in by bgLoadRoom AFTER bgBuildTables returns, so dumping too early
@@ -365,10 +388,85 @@ void bgTracePlayerTick(void)
 	fflush(g_BgTraceFile);
 }
 
+/**
+ * One dump per stage load, listing every pad with its DERIVED room.
+ *
+ * Gated on the same delay the room dump uses, and for a stronger reason than
+ * tidiness: pads are not prepared until setupPreparePads runs, which happens inside
+ * setupCreateProps (setup.c:1533), well after this tick starts firing. Dumping early
+ * would read an unprepared pads file and report -1 for everything, which is exactly
+ * the symptom a real authoring bug produces.
+ */
+void bgDumpPadsTick(void)
+{
+	FILE *fp;
+	char path[256];
+	struct pad pad;
+	s32 numpads;
+	s32 i;
+
+	if (!g_BgDumpPads) {
+		return;
+	}
+
+	if (g_Vars.stagenum != g_BgPadsStage) {
+		g_BgPadsStage = g_Vars.stagenum;
+		g_BgPadsTicks = 0;
+		return;
+	}
+
+	if (++g_BgPadsTicks != BGDUMP_DELAY_TICKS) {
+		return;
+	}
+
+	// Nothing to read if the setup never loaded a pads file. Report it rather than
+	// dereferencing, because a NULL here is a real finding: setupPreparePads is
+	// itself guarded (setup.c:1532), so a missing pads file fails silently until
+	// something later calls padUnpack.
+	if (g_StageSetup.padfiledata == NULL || g_PadsFile == NULL) {
+		sprintf(path, "pd-pads-stage%02x.txt", (s32)g_Vars.stagenum);
+		fp = fopen(path, "w");
+
+		if (fp != NULL) {
+			fprintf(fp, "# stage 0x%02x: NO PADS FILE LOADED (padfiledata is NULL)\n",
+					(s32)g_Vars.stagenum);
+			fclose(fp);
+		}
+
+		return;
+	}
+
+	sprintf(path, "pd-pads-stage%02x.txt", (s32)g_Vars.stagenum);
+	fp = fopen(path, "w");
+
+	if (fp == NULL) {
+		return;
+	}
+
+	numpads = g_PadsFile->numpads;
+
+	fprintf(fp, "# stage 0x%02x  numpads %d  numcovers %d  roomcount %d\n",
+			(s32)g_Vars.stagenum, numpads, (s32)g_PadsFile->numcovers,
+			(s32)g_Vars.roomcount);
+	fprintf(fp, "# room -1 means derivation FAILED: the pad is outside the room\n");
+	fprintf(fp, "#   pad        x         y         z   room      flags  lift\n");
+
+	for (i = 0; i < numpads; i++) {
+		padUnpack(i, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS | PADFIELD_LIFT, &pad);
+
+		fprintf(fp, "%6d  %9.2f %9.2f %9.2f  %5d  0x%08x  %4d\n",
+				i, pad.pos.x, pad.pos.y, pad.pos.z,
+				(s32)pad.room, pad.flags, (s32)pad.liftnum);
+	}
+
+	fclose(fp);
+}
+
 void bgDumpTick(void)
 {
 #ifndef PLATFORM_N64
 	bgTracePlayerTick();
+	bgDumpPadsTick();
 #endif
 
 	if (!g_BgDumpRooms) {
