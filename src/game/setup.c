@@ -16,6 +16,7 @@
 #include "game/playermgr.h"
 #include "game/bg.h"
 #include "game/bgprocedural.h"
+#include "game/setupprocedural.h"
 #include "game/stagetable.h"
 #include "game/file.h"
 #include "game/lv.h"
@@ -1320,14 +1321,28 @@ void setupLoadFiles(s32 stagenum)
 
 		g_LoadType = LOADTYPE_SETUP;
 
-		g_GeCreditsData = (u8 *)fileLoadToNew(filenum, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
-		setup = (struct stagesetup *)g_GeCreditsData;
-		langLoad(langGetLangBankIndexFromStagenum(stagenum));
+		// A procedural stage supplies its own setup from memory (setupprocedural.c).
+		//
+		// Only the SETUP FILE and its file-relative pointer fixups are bypassed. The
+		// language bank below and the pads file further down still load normally, and
+		// must: the spawn is a pad, and objective text is a language bank id. Cutting
+		// the whole block instead would leave padfiledata NULL, which does NOT fault
+		// here (setupPreparePads is guarded at the call site) but faults later in
+		// padUnpack, a long way from the cause.
+		if (setupIsProceduralStage(stagenum) && !g_Vars.normmplayerisrunning) {
+			setup = NULL;
+			setupProceduralLoad(stagenum);
+			langLoad(langGetLangBankIndexFromStagenum(stagenum));
+		} else {
+			g_GeCreditsData = (u8 *)fileLoadToNew(filenum, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
+			setup = (struct stagesetup *)g_GeCreditsData;
+			langLoad(langGetLangBankIndexFromStagenum(stagenum));
 
-		g_StageSetup.intro = (s32 *)((uintptr_t)setup + (uintptr_t)setup->intro);
-		g_StageSetup.props = (u32 *)((uintptr_t)setup + (uintptr_t)setup->props);
-		g_StageSetup.paths = (struct path *)((uintptr_t)setup + (uintptr_t)setup->paths);
-		g_StageSetup.ailists = (struct ailist *)((uintptr_t)setup + (uintptr_t)setup->ailists);
+			g_StageSetup.intro = (s32 *)((uintptr_t)setup + (uintptr_t)setup->intro);
+			g_StageSetup.props = (u32 *)((uintptr_t)setup + (uintptr_t)setup->props);
+			g_StageSetup.paths = (struct path *)((uintptr_t)setup + (uintptr_t)setup->paths);
+			g_StageSetup.ailists = (struct ailist *)((uintptr_t)setup + (uintptr_t)setup->ailists);
+		}
 
 		g_LoadType = LOADTYPE_PADS;
 
@@ -1337,8 +1352,10 @@ void setupLoadFiles(s32 stagenum)
 		g_StageSetup.waygroups = NULL;
 		g_StageSetup.cover = NULL;
 
-		// Convert ailist pointers from file-local to proper pointers
-		if (g_StageSetup.ailists) {
+		// Convert ailist pointers from file-local to proper pointers.
+		// A procedural setup's pointers are already real; adding a file base to them
+		// would corrupt them (and `setup` is NULL on that path anyway).
+		if (setup != NULL && g_StageSetup.ailists) {
 			for (i = 0; g_StageSetup.ailists[i].list != NULL; i++) {
 				g_StageSetup.ailists[i].list = (u8 *)((uintptr_t)setup + (uintptr_t)g_StageSetup.ailists[i].list);
 			}
