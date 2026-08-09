@@ -38,21 +38,24 @@
 #define PROC_ROOM        1     // the box. room 0 is the engine's sentinel.
 
 /**
- * Why this is 256 and not 2.
+ * Two rooms: the sentinel at 0, and the box at 1.
  *
- * W1 replaces GEOMETRY only: the stage's setup file still loads and still creates the
- * original level's props and chrs, and those reference the original room numbers.
- * Defection has 168 rooms, so with roomcount = 2 setupCreateProps indexes g_Rooms far
- * out of bounds and the game dies with an access violation inside lvReset -- nowhere
- * near the procedural code, and easy to misread as a geometry bug.
+ * This was 256 for as long as the stage still loaded DEFECTION'S SETUP alongside our
+ * geometry. That setup creates props and chrs carrying the original level's room numbers,
+ * and Defection has 168 rooms, so a roomcount of 2 sent setupCreateProps indexing g_Rooms
+ * far out of bounds -- an access violation inside lvReset, nowhere near the procedural
+ * code and easy to misread as a geometry bug. The oversized table was scaffolding around
+ * that, with rooms 2..255 degenerate and parked outside the world.
  *
- * So the room TABLE stays generously sized while only room 1 has geometry. Rooms
- * 2..255 are degenerate: a one-unit box parked far outside the playable world, so
- * they are never visible, never stream, and never contain the player. That last part
- * matters -- with no portals the engine draws only the room the player is in, so the
- * player must resolve into room 1 for the box to render at all.
+ * setupprocedural.c removed the cause: the setup is ours now and references no room but
+ * this one, so the scaffolding goes with it.
+ *
+ * This value must stay in step with the level description's roomcount, which sizes the
+ * TILES room table (mklevel.py emits one entry per room, and collision is looked up per
+ * room at collision.c:989). An engine table of 2 against a tiles table sized for Defection
+ * does not error: the extra rooms simply read as "no floor".
  */
-#define PROC_ROOMCOUNT   256
+#define PROC_ROOMCOUNT   2
 
 // Somewhere no player or prop will ever be.
 #define PROC_VOID_COORD  (-1000000.0f)
