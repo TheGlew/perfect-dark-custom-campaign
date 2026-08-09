@@ -20,6 +20,8 @@
 #include "game/bgdump.h"
 #include "game/pad.h"
 #include "game/objectives.h"
+#include "lang.h"
+#include "game/lang.h"
 #include "bss.h"
 #include "data.h"
 #include "types.h"
@@ -524,6 +526,29 @@ void bgTraceObjectivesTick(void)
 		}
 
 		fprintf(g_BgObjFile, "# objective status transitions. 0=incomplete 1=complete 2=failed\n");
+
+		// Resolve each objective's text through langGet, the same call the HUD makes
+		// (objectives.c:177-178). This is what proves an overridden language bank
+		// actually reached the engine: the id alone proves nothing, because a wrong or
+		// unshipped bank resolves the SAME id to the host game's original words, and
+		// on screen that looks like text we simply forgot to change.
+		{
+			s32 n = objectiveGetCount();
+			s32 k;
+
+			for (k = 0; k < n && k < BGOBJ_MAX; k++) {
+				char *text = g_Objectives[k] ? langGet(g_Objectives[k]->text) : NULL;
+				fprintf(g_BgObjFile, "# objective %d text id 0x%04x -> \"%s\"\n",
+						k,
+						g_Objectives[k] ? (u32)g_Objectives[k]->text : 0,
+						text ? text : "(null)");
+			}
+
+			fprintf(g_BgObjFile, "# briefing text id 0x%04x -> \"%s\"\n",
+					(u32)g_Briefing.briefingtextnum,
+					langGet(g_Briefing.briefingtextnum) ? langGet(g_Briefing.briefingtextnum) : "(null)");
+		}
+
 		fprintf(g_BgObjFile, "# tick  event\n");
 	}
 

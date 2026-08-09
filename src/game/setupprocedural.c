@@ -99,6 +99,19 @@ static const s32 g_ProcIntroTemplate[] = {
 #define PROC_OBJECTIVE_DIFFICULTIES (DIFFBIT_A | DIFFBIT_SA | DIFFBIT_PA | DIFFBIT_PD)
 
 /**
+ * Briefing text.
+ *
+ * These are ids into the HOST stage's language bank, whose contents we replace at deploy
+ * time (campaign/lang-ame.json -> mklang -> mod/files/LameE). Reusing ids the bank already
+ * has is deliberate: a bank holds 512 entries and the L_* constants are generated, so
+ * repointing beats appending.
+ *
+ * Without a BRIEFING command in props the briefing screen falls back to L_MISC_042,
+ * "No briefing for this mission" (setup.c:1259).
+ */
+#define PROC_BRIEFING_TEXT L_AME_000
+
+/**
  * Set a props command's TYPE.
  *
  * The type is byte 3 of the command's first word, not byte 0. That is not a quirk of this
@@ -118,46 +131,63 @@ static void procSetCmdType(void *cmd, u8 type)
  */
 static struct ailist g_ProcAilists[2];
 
-bool setupIsProceduralStage(s32 stagenum)
-{
-	return stagenum == STAGE_DEFECTION;
-}
-
 /**
- * Stand in for the setup file load.
+ * Size of the props command list, in words.
  *
- * Populates g_StageSetup with real pointers. The caller keeps the pads load, the language
- * load, the global-ailist sort and the whole prop-counting tail, all of which operate on
- * whatever this leaves behind.
+ * Command sizes come from the same sizeof arithmetic setupGetCmdLength uses to WALK them
+ * (setuputils.c:19-60), so the layout cannot drift from the walker. Writing the commands
+ * as a packed C struct would look tidier and would break the moment the compiler inserted
+ * padding, because criteria_roomentered carries a pointer and is 8-byte aligned here.
  */
-void setupProceduralLoad(s32 stagenum)
+static s32 procPropsWords(void)
 {
-	struct objective *objective;
-	struct criteria_roomentered *enterroom;
-	u32 *props;
-	u32 *p;
-	s32 propwords;
-	s32 *intro;
-	s32 i;
-
-	// The props list is BUILT FRESH each load rather than copied from a template, which
-	// is a stronger form of the same guarantee hazard 1 asks for: there is no master
-	// copy for the engine's in-place rewrites to corrupt.
-	//
-	// Command sizes come from the same sizeof arithmetic setupGetCmdLength uses to WALK
-	// them (setuputils.c:19-60), so the layout cannot drift from the walker. Writing the
-	// commands as a packed C struct would look tidier and would break the moment the
-	// compiler inserted padding, because criteria_roomentered carries a pointer and is
-	// therefore 8-byte aligned on this target.
-	propwords = sizeof(struct objective) / sizeof(u32)
+	return 3 * (sizeof(struct briefingobj) / sizeof(u32))   // one per difficulty
+			+ sizeof(struct objective) / sizeof(u32)
 			+ sizeof(struct criteria_roomentered) / sizeof(u32)
 			+ 1   // ENDOBJECTIVE
 			+ 1;  // END
+}
 
-	props = mempAlloc(ALIGN16(propwords * sizeof(u32)), MEMPOOL_STAGE);
-	memset(props, 0, propwords * sizeof(u32));
+/**
+ * Write the props command list into a caller-supplied buffer.
+ *
+ * Shared by the level load and the BRIEFING screen, which parse the same list from
+ * different memory at different times. Duplicating the layout for the second caller would
+ * mean two places to change every time the mission gains a command, and the failure would
+ * be a briefing that disagrees with the mission rather than a crash.
+ */
+static void procBuildProps(void *dst)
+{
+	struct briefingobj *briefing;
+	struct objective *objective;
+	struct criteria_roomentered *enterroom;
+	u32 *p = (u32 *)dst;
+	s32 i;
 
-	p = props;
+	memset(dst, 0, procPropsWords() * sizeof(u32));
+
+	// ONE BRIEFING PER DIFFICULTY, all pointing at the same text.
+	//
+	// Emitting only TEXT_PA is not enough and fails quietly. setupCreateProps picks the
+	// briefing whose type matches the CURRENT difficulty (setup.c:2044-2052: wanttype
+	// becomes TEXT_A on Agent and TEXT_SA on Special Agent), so a PA-only briefing is
+	// simply never matched on the lower two, and the screen falls back to L_MISC_042,
+	// "No briefing for this mission". Measured exactly that before this loop existed.
+	//
+	// Stock setups carry three because they say different things per difficulty. This
+	// mission has one objective on all three, so all three ids are the same.
+	for (i = 0; i < 3; i++) {
+		static const u8 types[3] = {
+			BRIEFINGTYPE_TEXT_PA, BRIEFINGTYPE_TEXT_SA, BRIEFINGTYPE_TEXT_A,
+		};
+
+		briefing = (struct briefingobj *)p;
+		procSetCmdType(briefing, OBJTYPE_BRIEFING);
+		briefing->type = types[i];
+		briefing->text = PROC_BRIEFING_TEXT;
+		briefing->next = NULL;
+		p += sizeof(struct briefingobj) / sizeof(u32);
+	}
 
 	objective = (struct objective *)p;
 	procSetCmdType(objective, OBJTYPE_BEGINOBJECTIVE);
@@ -177,6 +207,63 @@ void setupProceduralLoad(s32 stagenum)
 	p += 1;
 
 	procSetCmdType(p, OBJTYPE_END);
+}
+
+/**
+ * The props list as the BRIEFING screen sees it.
+ *
+ * The briefing screen runs from the main menu, long before any stage loads, so
+ * g_StageSetup.props is either stale or pointing into a MEMPOOL_STAGE that has since been
+ * cleared. It therefore gets its own static buffer.
+ *
+ * A static buffer is only safe because setupLoadBriefing's walk is READ-ONLY: it switches
+ * on OBJTYPE_BRIEFING and OBJTYPE_BEGINOBJECTIVE and copies text ids out (setup.c:1263-1288),
+ * unlike setupCreateProps which rewrites its input in place. That is an INVARIANT this
+ * buffer depends on. If a mutation is ever added to that walk, this must become a fresh
+ * copy per call, and the symptom of missing it would be a briefing screen that corrupts
+ * the mission before it starts.
+ */
+static u32 g_ProcBriefingProps[64];
+
+u32 *setupProceduralGetBriefingProps(void)
+{
+	if (procPropsWords() > (s32)ARRAYCOUNT(g_ProcBriefingProps)) {
+		// The list outgrew its buffer. Report an empty mission rather than writing
+		// past the end: a briefing with no objectives is visible and harmless, a
+		// buffer overrun is neither.
+		g_ProcBriefingProps[0] = 0;
+		procSetCmdType(g_ProcBriefingProps, OBJTYPE_END);
+		return g_ProcBriefingProps;
+	}
+
+	procBuildProps(g_ProcBriefingProps);
+
+	return g_ProcBriefingProps;
+}
+
+bool setupIsProceduralStage(s32 stagenum)
+{
+	return stagenum == STAGE_DEFECTION;
+}
+
+/**
+ * Stand in for the setup file load.
+ *
+ * Populates g_StageSetup with real pointers. The caller keeps the pads load, the language
+ * load, the global-ailist sort and the whole prop-counting tail, all of which operate on
+ * whatever this leaves behind.
+ */
+void setupProceduralLoad(s32 stagenum)
+{
+	u32 *props;
+	s32 *intro;
+	s32 i;
+
+	// The props list is BUILT FRESH each load rather than copied from a template, which
+	// is a stronger form of the same guarantee hazard 1 asks for: there is no master
+	// copy for the engine's in-place rewrites to corrupt.
+	props = mempAlloc(ALIGN16(procPropsWords() * sizeof(u32)), MEMPOOL_STAGE);
+	procBuildProps(props);
 
 	// The intro list is copied for the same reason, even though nothing is known to
 	// write to it: the cost is a few bytes and the alternative is discovering the

@@ -1228,18 +1228,33 @@ void setupLoadBriefing(s32 stagenum, u8 *buffer, s32 bufferlen, struct briefing 
 		g_LoadType = LOADTYPE_SETUP;
 #endif
 
-		fileLoadToAddr(setupfilenum, FILELOADMETHOD_DEFAULT, buffer, bufferlen);
+		// THE BRIEFING SCREEN PARSES THE SETUP A SECOND TIME, from the file, and this
+		// is the only place it happens (called from mainmenu.c:792). Hooking only
+		// setupLoadFiles leaves the pre-mission screen showing the HOST stage's briefing
+		// and objective names while the in-game objective list shows ours: a silent
+		// disagreement that looks like nothing is wrong.
+		//
+		// The whole buffer goes to the language data on this path, because no setup file
+		// is loaded into it to work around.
+		if (setupIsProceduralStage(stagenum)) {
+			setup = NULL;
+			briefing->langbank = langGetLangBankIndexFromStagenum(stagenum);
+			langLoadToAddr(briefing->langbank, buffer, bufferlen);
+			start = (struct defaultobj *)setupProceduralGetBriefingProps();
+		} else {
+			fileLoadToAddr(setupfilenum, FILELOADMETHOD_DEFAULT, buffer, bufferlen);
 
-		setup = (struct stagesetup *)buffer;
-		setupfilesize = fileGetLoadedSize(setupfilenum);
-		langbuffer = &buffer[setupfilesize];
-		langbufferlen = bufferlen - setupfilesize;
+			setup = (struct stagesetup *)buffer;
+			setupfilesize = fileGetLoadedSize(setupfilenum);
+			langbuffer = &buffer[setupfilesize];
+			langbufferlen = bufferlen - setupfilesize;
 
-		briefing->langbank = langGetLangBankIndexFromStagenum(stagenum);
+			briefing->langbank = langGetLangBankIndexFromStagenum(stagenum);
 
-		langLoadToAddr(briefing->langbank, langbuffer, langbufferlen);
+			langLoadToAddr(briefing->langbank, langbuffer, langbufferlen);
 
-		start = (struct defaultobj *)((uintptr_t)setup + (uintptr_t)setup->props);
+			start = (struct defaultobj *)((uintptr_t)setup + (uintptr_t)setup->props);
+		}
 
 		if (start != NULL) {
 			struct defaultobj *obj;

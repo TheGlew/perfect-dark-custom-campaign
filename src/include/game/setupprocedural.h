@@ -6,5 +6,6 @@
 
 bool setupIsProceduralStage(s32 stagenum);
 void setupProceduralLoad(s32 stagenum);
+u32 *setupProceduralGetBriefingProps(void);
 
 #endif
