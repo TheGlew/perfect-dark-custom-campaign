@@ -12,6 +12,9 @@
 #include "game/bondview.h"
 #include "game/camdraw.h"
 #include "game/campaign.h"
+#ifndef PLATFORM_N64
+#include "texpack.h"
+#endif
 #include "game/casing.h"
 #include "game/cheats.h"
 #include "game/chr.h"
@@ -303,6 +306,9 @@ void lvReset(s32 stagenum)
 	musicReset();
 	modelmgrSetLvResetting(true);
 	surfaceReset();
+#ifndef PLATFORM_N64
+	texpackReset();
+#endif
 	texReset();
 	textReset();
 	hudmsgsReset();
@@ -473,6 +479,9 @@ void lvReset(s32 stagenum)
 	var80084018 = 1;
 	schedResetArtifacts();
 	lvSetPaused(0);
+#ifndef PLATFORM_N64
+	texpackCensus();
+#endif
 
 #if PIRACYCHECKS
 	{
@@ -2114,6 +2123,11 @@ void lvTick(void)
 
 #ifndef PLATFORM_N64
 	campaignTick();
+
+	if (g_TexpackDump && (g_Vars.lvframenum % 600) == 300) {
+		// textures that loaded after the stage reset (weapons, props spawned later)
+		texpackCensus();
+	}
 #endif
 
 	for (j = 0; j < PLAYERCOUNT(); j++) {

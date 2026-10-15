@@ -13,6 +13,7 @@
 #ifndef PLATFORM_N64
 #include "mod.h"
 #include "platform.h"
+#include "texpack.h"
 #endif
 
 struct texture *g_Textures;
@@ -2376,6 +2377,25 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 			if (!usingsharedpool) {
 				texGetPoolFreeBytes(pool);
 			}
+
+#ifndef PLATFORM_N64
+			{
+				// HD texture packs: this is the one place a texture's number and its
+				// inflated bytes meet, so the renderer can name what it uploads
+				s32 lod;
+				u32 pixelbytes = 0;
+				s32 numlods = tex->numlods ? tex->numlods : 1;
+
+				for (lod = 0; lod < numlods; lod++) {
+					pixelbytes += texGetSizeInBytes(tex, lod) * 8;
+				}
+
+				texpackRegister(tex->texturenum, tex->data, (u32)bytesout,
+						tex->width, tex->height, tex->gbiformat, tex->depth, tex->lutmodeindex,
+						texGetLineSizeInBytes(tex, 0) * 8, pixelbytes,
+						tex->lutmodeindex ? tex->unk0a + 1 : 0);
+			}
+#endif
 		}
 
 		*updateword = osVirtualToPhysical(tex->data);

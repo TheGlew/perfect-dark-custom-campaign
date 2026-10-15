@@ -28,9 +28,6 @@ extern s32 g_CampaignDifficulty;
 extern s32 g_CampaignDebugAutoComplete; // seconds into a stage before it is force-completed
 extern s32 g_CampaignDebugAutoDie;      // seconds into the first stage before Joanna is killed once
 
-// --handoff <file>: another game's final loadout, applied at the first stage
-extern char g_CampaignHandoffFile[512];
-
 void campaignBootInit(s32 *stagenum);
 bool campaignHandleStageEnd(void);
 void campaignOnPlayerReset(void);

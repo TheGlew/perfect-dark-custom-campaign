@@ -8,6 +8,7 @@
 #include "bss.h"
 #include "data.h"
 #include "game/campaign.h"
+#include "texpack.h"
 
 #include "video.h"
 #include "audio.h"
@@ -181,6 +182,9 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Campaign.Difficulty", &g_CampaignDifficulty, 0, 2);
 	configRegisterInt("Debug.CampaignAutoComplete", &g_CampaignDebugAutoComplete, 0, 3600);
 	configRegisterInt("Debug.CampaignAutoDie", &g_CampaignDebugAutoDie, 0, 3600);
+	configRegisterString("Textures.Pack", g_TexpackDir, sizeof(g_TexpackDir));
+	configRegisterString("Textures.DumpDir", g_TexpackDumpDir, sizeof(g_TexpackDumpDir));
+	configRegisterInt("Textures.Dump", &g_TexpackDump, 0, 2);
 	for (s32 j = 0; j < MAX_PLAYERS; ++j) {
 		const s32 i = j + 1;
 		configRegisterFloat(strFmt("Game.Player%d.FovY", i), &g_PlayerExtCfg[j].fovy, 5.f, 175.f);

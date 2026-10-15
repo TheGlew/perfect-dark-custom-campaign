@@ -35,7 +35,6 @@
 #include "game/title.h"
 #include "lib/main.h"
 #include "lib/vi.h"
-#include "fs.h"
 #include "system.h"
 
 s32 g_CampaignContinuous = 0;
@@ -46,7 +45,6 @@ s32 g_CampaignSkipCutscenes = 0;
 s32 g_CampaignDifficulty = 0;
 s32 g_CampaignDebugAutoComplete = 0;
 s32 g_CampaignDebugAutoDie = 0;
-char g_CampaignHandoffFile[512] = "";
 
 #define CAMPAIGN_MAX_WEAPONS 48
 #define CAMPAIGN_NUM_AMMOTYPES 33
@@ -71,7 +69,6 @@ static f32 s_ShieldValue = 0;
 static bool s_DebugCompleteFired = false;
 static bool s_DebugDieFired = false;
 static bool s_DebugForceComplete = false;
-static bool s_HandoffApplied = false;
 
 /**
  * Only real guns and throwables carry over. Gadgets, keys, props and the
@@ -276,128 +273,6 @@ static void campaignRestore(struct campaignloadout *l)
 }
 
 /**
- * Read another game's final loadout. One item per line:
- *   weapon <name> <ammo>    a GoldenEye item name and that ammo type's total
- *   health <0..1>
- *   armour <0..1>
- * GoldenEye's guns map onto the Perfect Dark weapons they became.
- */
-struct campaignhandoffmap {
-	const char *name;
-	s32 weapon;
-};
-
-static const struct campaignhandoffmap s_HandoffMap[] = {
-	{ "ITEM_KNIFE",         WEAPON_COMBATKNIFE },
-	{ "ITEM_THROWKNIFE",    WEAPON_COMBATKNIFE },
-	{ "ITEM_WPPK",          WEAPON_PP9I },
-	{ "ITEM_WPPKSIL",       WEAPON_PP9I },
-	{ "ITEM_SILVERWPPK",    WEAPON_PP9I },
-	{ "ITEM_GOLDWPPK",      WEAPON_PP9I },
-	{ "ITEM_TT33",          WEAPON_CC13 },
-	{ "ITEM_SKORPION",      WEAPON_KL01313 },
-	{ "ITEM_AK47",          WEAPON_KF7SPECIAL },
-	{ "ITEM_UZI",           WEAPON_ZZT },
-	{ "ITEM_MP5K",          WEAPON_DMC },
-	{ "ITEM_MP5KSIL",       WEAPON_DMC },
-	{ "ITEM_SPECTRE",       WEAPON_CYCLONE },
-	{ "ITEM_M16",           WEAPON_AR53 },
-	{ "ITEM_FNP90",         WEAPON_RCP45 },
-	{ "ITEM_SHOTGUN",       WEAPON_SHOTGUN },
-	{ "ITEM_AUTOSHOT",      WEAPON_SHOTGUN },
-	{ "ITEM_SNIPERRIFLE",   WEAPON_SNIPERRIFLE },
-	{ "ITEM_RUGER",         WEAPON_DY357MAGNUM },
-	{ "ITEM_GOLDENGUN",     WEAPON_DY357LX },
-	{ "ITEM_LASER",         WEAPON_LASER },
-	{ "ITEM_WATCHLASER",    WEAPON_LASER },
-	{ "ITEM_GRENADELAUNCH", WEAPON_DEVASTATOR },
-	{ "ITEM_ROCKETLAUNCH",  WEAPON_ROCKETLAUNCHER },
-	{ "ITEM_GRENADE",       WEAPON_GRENADE },
-	{ "ITEM_TIMEDMINE",     WEAPON_TIMEDMINE },
-	{ "ITEM_PROXIMITYMINE", WEAPON_PROXIMITYMINE },
-	{ "ITEM_REMOTEMINE",    WEAPON_REMOTEMINE },
-	{ NULL, 0 },
-};
-
-static bool campaignLoadHandoff(const char *path, struct campaignloadout *out)
-{
-	FILE *fp = fopen(path, "r");
-	char line[256];
-	s32 mapped = 0;
-	s32 skipped = 0;
-
-	if (fp == NULL) {
-		sysLogPrintf(LOG_WARNING, "campaign: handoff file not found: %s", path);
-		return false;
-	}
-
-	memset(out, 0, sizeof(*out));
-	out->valid = true;
-	out->health = 1;
-
-	while (fgets(line, sizeof(line), fp)) {
-		char key[32];
-		char name[64];
-		s32 ammo = 0;
-		f32 frac = 0;
-
-		if (sscanf(line, "%31s %63s %d", key, name, &ammo) >= 2 && strcmp(key, "weapon") == 0) {
-			const struct campaignhandoffmap *m;
-			s32 weapon = -1;
-
-			for (m = s_HandoffMap; m->name; m++) {
-				if (strcmp(m->name, name) == 0) {
-					weapon = m->weapon;
-					break;
-				}
-			}
-
-			if (weapon < 0) {
-				skipped++;
-				continue;
-			}
-
-			if (out->numweapons < CAMPAIGN_MAX_WEAPONS) {
-				s32 i;
-				bool dupe = false;
-
-				for (i = 0; i < out->numweapons; i++) {
-					if (out->weapon1[i] == weapon) {
-						dupe = true;
-					}
-				}
-
-				if (!dupe) {
-					out->weapon1[out->numweapons] = weapon;
-					out->weapon2[out->numweapons] = -1;
-					out->numweapons++;
-				}
-
-				{
-					s32 ammotype = bgunGetAmmoTypeForWeapon(weapon, FUNC_PRIMARY);
-
-					if (ammotype > 0 && ammotype < CAMPAIGN_NUM_AMMOTYPES && ammo > out->ammo[ammotype]) {
-						out->ammo[ammotype] = ammo;
-					}
-				}
-
-				mapped++;
-			}
-		} else if (sscanf(line, "%31s %f", key, &frac) == 2 && strcmp(key, "health") == 0) {
-			out->health = frac;
-		} else if (sscanf(line, "%31s %f", key, &frac) == 2 && strcmp(key, "armour") == 0) {
-			out->shield = frac;
-		}
-	}
-
-	fclose(fp);
-
-	sysLogPrintf(LOG_NOTE, "campaign: handoff %s: %d weapons mapped, %d without an equivalent", path, mapped, skipped);
-
-	return true;
-}
-
-/**
  * The part of endscreenPrepare that records the completion in the save file:
  * best time, the next mission as the auto-selected one, the file thumbnail,
  * and whatever that unlocks. Same conditions as the end screen uses.
@@ -462,24 +337,8 @@ static void campaignGoToStage(s32 stagenum)
 	viBlack(true);
 }
 
-static void campaignWriteMarker(const char *name)
-{
-	char path[600];
-	FILE *fp;
-
-	snprintf(path, sizeof(path), "$S/%s", name);
-	fp = fopen(fsFullPath(path), "w");
-
-	if (fp) {
-		fprintf(fp, "difficulty %d\n", g_MissionConfig.difficulty);
-		fclose(fp);
-	}
-}
-
 void campaignBootInit(s32 *stagenum)
 {
-	const char *handoff;
-
 	if (sysArgCheck("--campaign")) {
 		g_CampaignContinuous = 1;
 
@@ -491,12 +350,6 @@ void campaignBootInit(s32 *stagenum)
 		lvSetDifficulty(g_CampaignDifficulty);
 	}
 
-	handoff = sysArgGetString("--handoff");
-
-	if (handoff) {
-		strncpy(g_CampaignHandoffFile, handoff, sizeof(g_CampaignHandoffFile) - 1);
-	}
-
 	if (g_CampaignContinuous) {
 		s32 idx = campaignSoloIndex(*stagenum);
 
@@ -505,10 +358,9 @@ void campaignBootInit(s32 *stagenum)
 			g_MissionConfig.stagenum = *stagenum;
 		}
 
-		sysLogPrintf(LOG_NOTE, "campaign: continuous on, boot stage 0x%02x (solo index %d), difficulty %d, carry inventory %d health %d, retry on death %d, skip cutscenes %d%s%s",
+		sysLogPrintf(LOG_NOTE, "campaign: continuous on, boot stage 0x%02x (solo index %d), difficulty %d, carry inventory %d health %d, retry on death %d, skip cutscenes %d",
 				*stagenum, idx, g_MissionConfig.difficulty, g_CampaignCarryInventory, g_CampaignCarryHealth,
-				g_CampaignRetryOnDeath, g_CampaignSkipCutscenes,
-				g_CampaignHandoffFile[0] ? ", handoff " : "", g_CampaignHandoffFile);
+				g_CampaignRetryOnDeath, g_CampaignSkipCutscenes);
 	}
 }
 
@@ -553,7 +405,6 @@ bool campaignHandleStageEnd(void)
 
 		if (idx >= CAMPAIGN_LAST_STAGEINDEX) {
 			sysLogPrintf(LOG_NOTE, "campaign: stage 0x%02x (solo %d) complete -> credits; campaign complete", g_Vars.stagenum, idx);
-			campaignWriteMarker("campaign-complete.txt");
 			s_RestorePending = false;
 			g_MissionConfig.stagenum = STAGE_CREDITS;
 			campaignGoToStage(STAGE_CREDITS);
@@ -615,15 +466,6 @@ void campaignOnPlayerReset(void)
 	if (s_RestorePending && s_Carry.valid) {
 		campaignRestore(&s_Carry);
 		campaignLogLoadout("restored", &s_Carry);
-	} else if (!s_HandoffApplied && g_CampaignHandoffFile[0]) {
-		struct campaignloadout handoff;
-
-		s_HandoffApplied = true;
-
-		if (campaignLoadHandoff(g_CampaignHandoffFile, &handoff)) {
-			campaignRestore(&handoff);
-			campaignLogLoadout("handoff applied", &handoff);
-		}
 	}
 
 	s_RestorePending = false;

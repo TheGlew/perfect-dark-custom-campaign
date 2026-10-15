@@ -30,6 +30,7 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_rendering_api.h"
 #include "gfx_screen_config.h"
+#include "texpack.h"
 
 uintptr_t gfxFramebuffer;
 
@@ -608,6 +609,20 @@ void gfx_texture_cache_delete_range(const uint8_t* start, const uint8_t* end) {
     }
 }
 
+// HD texture packs: every decoded upload goes through here, so the pack can
+// dump it or swap in a bigger image. UVs are normalised by the tile size, not
+// the uploaded size, so a larger replacement needs nothing else.
+static void texpack_upload(const uint8_t *rgba, uint32_t width, uint32_t height, bool gen_mipmaps) {
+    uint32_t rw = 0, rh = 0;
+    const uint8_t *rep = texpackResolve(rgba, width, height, &rw, &rh);
+    if (rep) {
+        gfx_rapi->upload_texture(rep, rw, rh, gen_mipmaps);
+        texpackRelease(rep);
+    } else {
+        gfx_rapi->upload_texture(rgba, width, height, gen_mipmaps);
+    }
+}
+
 static void import_texture_rgba16(int tile, const LoadedTexture& loaded_texture, bool gen_mipmaps) {
     const uint8_t* addr = loaded_texture.addr;
     const uint32_t size_bytes = loaded_texture.size_bytes;
@@ -634,7 +649,7 @@ static void import_texture_rgba16(int tile, const LoadedTexture& loaded_texture,
     const uint32_t width = rdp.texture_tile[tile].line_size_bytes / 2;
     const uint32_t height = size_bytes / rdp.texture_tile[tile].line_size_bytes;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	texpack_upload(tex_upload_buffer, width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
@@ -655,7 +670,7 @@ static void import_texture_rgba32(int tile, const LoadedTexture& loaded_texture,
 
     const uint32_t width = rdp.texture_tile[tile].line_size_bytes / 2;
     const uint32_t height = (size_bytes / 2) / rdp.texture_tile[tile].line_size_bytes;
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	texpack_upload(tex_upload_buffer, width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, addr, width, height);
 }
 
@@ -684,7 +699,7 @@ static void import_texture_ia4(int tile, const LoadedTexture& loaded_texture, bo
     const uint32_t width = rdp.texture_tile[tile].line_size_bytes * 2;
     const uint32_t height = size_bytes / rdp.texture_tile[tile].line_size_bytes;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	texpack_upload(tex_upload_buffer, width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
@@ -710,7 +725,7 @@ static void import_texture_ia8(int tile, const LoadedTexture& loaded_texture, bo
     const uint32_t width = rdp.texture_tile[tile].line_size_bytes;
     const uint32_t height = size_bytes / rdp.texture_tile[tile].line_size_bytes;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	texpack_upload(tex_upload_buffer, width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
@@ -736,7 +751,7 @@ static void import_texture_ia16(int tile, const LoadedTexture& loaded_texture, b
     const uint32_t width = rdp.texture_tile[tile].line_size_bytes / 2;
     const uint32_t height = size_bytes / rdp.texture_tile[tile].line_size_bytes;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	texpack_upload(tex_upload_buffer, width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
@@ -763,7 +778,7 @@ static void import_texture_i4(int tile, const LoadedTexture& loaded_texture, boo
     const uint32_t width = rdp.texture_tile[tile].line_size_bytes * 2;
     const uint32_t height = size_bytes / rdp.texture_tile[tile].line_size_bytes;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	texpack_upload(tex_upload_buffer, width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
@@ -788,7 +803,7 @@ static void import_texture_i8(int tile, const LoadedTexture& loaded_texture, boo
     const uint32_t width = rdp.texture_tile[tile].line_size_bytes;
     const uint32_t height = size_bytes / rdp.texture_tile[tile].line_size_bytes;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	texpack_upload(tex_upload_buffer, width, height, gen_mipmaps);
     // DumpTexture(loaded_texture.otr_path, rgba32_buf, width, height);
 }
 
@@ -838,7 +853,7 @@ static void import_texture_ci4(int tile, const LoadedTexture& loaded_texture, bo
     const uint32_t width = result_line_size * 2;
     const uint32_t height = size_bytes / result_line_size;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	texpack_upload(tex_upload_buffer, width, height, gen_mipmaps);
 }
 
 static void import_texture_ci8(int tile, const LoadedTexture& loaded_texture, bool gen_mipmaps) {
@@ -864,7 +879,7 @@ static void import_texture_ci8(int tile, const LoadedTexture& loaded_texture, bo
     const uint32_t width = result_line_size;
     const uint32_t height = size_bytes / result_line_size;
 
-	gfx_rapi->upload_texture(tex_upload_buffer, width, height, gen_mipmaps);
+	texpack_upload(tex_upload_buffer, width, height, gen_mipmaps);
 }
 
 static void import_texture(int i, int tile, bool importReplacement) {
@@ -904,6 +919,22 @@ static void import_texture(int i, int tile, bool importReplacement) {
         return;
     }
 
+    {
+        // HD texture packs: name the source bytes so the upload can be dumped or replaced
+        const uint16_t *pal = NULL;
+        int palcount = 0;
+        if (fmt == G_IM_FMT_CI) {
+            if (siz == G_IM_SIZ_4b) {
+                pal = rdp.palette + (palette_index & 15) * 16;
+                palcount = 16;
+            } else {
+                pal = rdp.palette;
+                palcount = 256;
+            }
+        }
+        texpackImportBegin(orig_addr, loaded_texture.size_bytes, fmt, siz, pal, palcount);
+    }
+
     if (fmt == G_IM_FMT_RGBA) {
         if (siz == G_IM_SIZ_16b) {
             import_texture_rgba16(tile, loaded_texture, rdp.tex_lod);
@@ -941,6 +972,8 @@ static void import_texture(int i, int tile, bool importReplacement) {
     } else {
         sysFatalError("Bad texture format in tile %d: %02x %02x", tile, fmt, siz);
     }
+
+    texpackImportEnd();
 }
 
 static void gfx_normalize_vector(float v[3]) {
