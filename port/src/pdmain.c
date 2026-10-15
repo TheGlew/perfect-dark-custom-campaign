@@ -29,6 +29,7 @@
 #include "game/pdmode.h"
 #include "game/objectives.h"
 #include "game/endscreen.h"
+#include "game/campaign.h"
 #include "game/playermgr.h"
 #include "game/game_1531a0.h"
 #include "game/gfxmemory.h"
@@ -613,6 +614,8 @@ void mainEndStage(void)
 			musicStartMenu();
 		} else if (g_Vars.normmplayerisrunning) {
 			mpEndMatch();
+		} else if (campaignHandleStageEnd()) {
+			// continuous campaign: the next stage is already queued, no end screen
 		} else {
 			endscreenPrepare();
 			musicStartMenu();

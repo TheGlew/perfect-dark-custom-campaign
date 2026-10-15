@@ -11,6 +11,7 @@
 #include "game/bondmove.h"
 #include "game/bondview.h"
 #include "game/camdraw.h"
+#include "game/campaign.h"
 #include "game/casing.h"
 #include "game/cheats.h"
 #include "game/chr.h"
@@ -430,6 +431,11 @@ void lvReset(s32 stagenum)
 			bgunReset();
 			playerLoadDefaults();
 			playerReset();
+#ifndef PLATFORM_N64
+			if (i == 0) {
+				campaignOnPlayerReset();
+			}
+#endif
 			playerSpawn();
 			bheadReset();
 
@@ -2105,6 +2111,10 @@ void lvTick(void)
 	if (IS4MB()) {
 		vmPrintStatsIfEnabled();
 	}
+
+#ifndef PLATFORM_N64
+	campaignTick();
+#endif
 
 	for (j = 0; j < PLAYERCOUNT(); j++) {
 		g_Vars.players[j]->hands[HAND_LEFT].hasdotinfo = false;

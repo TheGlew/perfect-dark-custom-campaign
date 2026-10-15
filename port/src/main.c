@@ -7,6 +7,7 @@
 #include "lib/main.h"
 #include "bss.h"
 #include "data.h"
+#include "game/campaign.h"
 
 #include "video.h"
 #include "audio.h"
@@ -153,6 +154,8 @@ int main(int argc, const char **argv)
 		sysLogPrintf(LOG_NOTE, "player profile set to %d", g_FileAutoSelect);
 	}
 
+	campaignBootInit(&g_StageNum);
+
 	mainProc();
 
 	return 0;
@@ -170,6 +173,14 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Game.DisableMpDeathMusic", &g_MusicDisableMpDeath, 0, 1);
 	configRegisterInt("Game.GEMuzzleFlashes", &g_BgunGeMuzzleFlashes, 0, 1);
 	configRegisterInt("Game.MaxExplosions", &g_MaxExplosions, 6, 96);
+	configRegisterInt("Campaign.Continuous", &g_CampaignContinuous, 0, 1);
+	configRegisterInt("Campaign.CarryInventory", &g_CampaignCarryInventory, 0, 1);
+	configRegisterInt("Campaign.CarryHealth", &g_CampaignCarryHealth, 0, 1);
+	configRegisterInt("Campaign.RetryOnDeath", &g_CampaignRetryOnDeath, 0, 1);
+	configRegisterInt("Campaign.SkipCutscenes", &g_CampaignSkipCutscenes, 0, 1);
+	configRegisterInt("Campaign.Difficulty", &g_CampaignDifficulty, 0, 2);
+	configRegisterInt("Debug.CampaignAutoComplete", &g_CampaignDebugAutoComplete, 0, 3600);
+	configRegisterInt("Debug.CampaignAutoDie", &g_CampaignDebugAutoDie, 0, 3600);
 	for (s32 j = 0; j < MAX_PLAYERS; ++j) {
 		const s32 i = j + 1;
 		configRegisterFloat(strFmt("Game.Player%d.FovY", i), &g_PlayerExtCfg[j].fovy, 5.f, 175.f);
