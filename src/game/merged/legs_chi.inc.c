@@ -3,3 +3,6 @@ static const struct campaignleg g_CampaignLegs_chi[] = {
 	{ STAGE_CHICAGO, 0, 5, 0x0063, 0, 0, 0, 0, { 0, 0, 0 }, OUTFIT_TRENCH, 0, { 0, 0, 0, 0, 0, 0 }, 1, { { AMMOTYPE_PISTOL, 50 } } },
 	{ STAGE_G5BUILDING, 5, 5, 0x01a9, 1, 106, 80, 35, { 20000, 0, 0 }, OUTFIT_LEATHER, 3, { WEAPON_FALCON2_SILENCER, WEAPON_DOORDECODER, WEAPON_EYESPY, 0, 0, 0 }, 2, { { AMMOTYPE_PISTOL, 100 }, { AMMOTYPE_NBOMB, 6 } } },
 };
+static const struct campaignlock g_CampaignLocks_chi[] = {
+	{ -1, 0, 0, 0 },
+};

@@ -52,6 +52,7 @@ def build(key, datadir):
         prefix = "PAD_%s_" % leg.name.upper()
         first = next((i for i, n in enumerate(pad_names) if n.startswith(prefix)), 0)
         leg.pad_base = first
+        leg.lift_base = info["lift_offsets"][leg.world]
     merger = setupmerge.Merger(legs, os.path.join(outdir, "setup%s.c" % key), os.path.join(outdir, "setup%s.json" % key),
                                key=key, symbol_paths=symbols, pad_positions=info["pad_positions"])
     merger.world_offsets = [tuple(int(c) for c in w["offset"]) for w in mission.MISSIONS[key]["worlds"]]
@@ -70,6 +71,20 @@ def build(key, datadir):
     print("%s: %s; setup %d props words, %d ailists, %d bytes compressed; legs %s" % (
         key, info, len(setup.props), len(setup.ailists), os.path.getsize(os.path.join(outdir, "Usetup%sZ" % key)),
         [(l["name"], l["objective_first"], l["objective_count"], l["excluded_objects"], l["gates"]) for l in side["legs"]]))
+    for l in side["legs"]:
+        d = l["dedup"]
+        if not d:
+            continue
+        if d["excluded"]:
+            print("  %s: already placed by an earlier leg, not created again: %s; %d of them differ in the arguments beyond the place"
+                  % (l["name"], d["excluded"], d["differing"]))
+        for model, places in d["lifts"]:
+            print("  %s: lift %s gains a later leg's stops, now %s" % (l["name"], model, places))
+        if d["variants"]:
+            print("  %s: %d stand where the earlier object exists on some difficulties only (created on the others); %d of those are tagged"
+                  % (l["name"], d["variants"], d["tagged_variants"]))
+        for model, place, kleg, klock, mlock in d["locks"]:
+            print("  %s: door %s at %s has %s's lock %s until this leg begins, then %s" % (l["name"], model, place, kleg, klock, mlock))
 
 
 if __name__ == "__main__":

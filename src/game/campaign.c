@@ -22,6 +22,7 @@
 #include "types.h"
 #include "game/campaign.h"
 #include "game/setup.h"
+#include "game/setuputils.h"
 #include "game/bondgun.h"
 #include "game/challenge.h"
 #include "game/cheats.h"
@@ -693,6 +694,7 @@ struct campaignmission {
 	s32 stagenum;
 	s32 numlegs;
 	const struct campaignleg *legs;
+	const struct campaignlock *locks;
 };
 
 #include "merged/legs_a51.inc.c"
@@ -700,9 +702,9 @@ struct campaignmission {
 #include "merged/legs_chi.inc.c"
 
 static const struct campaignmission g_CampaignMissions[] = {
-	{ STAGE_MERGED_DD,  ARRAYCOUNT(g_CampaignLegs_dd),  g_CampaignLegs_dd  },
-	{ STAGE_MERGED_CHI, ARRAYCOUNT(g_CampaignLegs_chi), g_CampaignLegs_chi },
-	{ STAGE_MERGED_A51, ARRAYCOUNT(g_CampaignLegs_a51), g_CampaignLegs_a51 },
+	{ STAGE_MERGED_DD,  ARRAYCOUNT(g_CampaignLegs_dd),  g_CampaignLegs_dd,  g_CampaignLocks_dd  },
+	{ STAGE_MERGED_CHI, ARRAYCOUNT(g_CampaignLegs_chi), g_CampaignLegs_chi, g_CampaignLocks_chi },
+	{ STAGE_MERGED_A51, ARRAYCOUNT(g_CampaignLegs_a51), g_CampaignLegs_a51, g_CampaignLocks_a51 },
 };
 
 static u32 s_LegFlagWords[CAMPAIGN_MAX_LEGS];   // each leg's stage flags; the current leg's live in g_StageFlags
@@ -947,6 +949,33 @@ bool campaignObjectiveForced(s32 index)
  * and sky apply, and the player stands at the leg's start. With fade, the
  * teleport happens behind the game's white teleport screen.
  */
+/**
+ * A door two legs place exists once, with the earlier leg's lock; when the
+ * later leg begins, the door takes the lock that leg's own setup gave it.
+ * Returns how many doors changed.
+ */
+static s32 campaignApplyLegLocks(const struct campaignmission *mission, s32 leg)
+{
+	const struct campaignlock *lock;
+	s32 n = 0;
+
+	for (lock = mission->locks; lock && lock->leg >= 0; lock++) {
+		if (lock->leg == leg) {
+			struct defaultobj *obj = setupGetObjByCmdIndex(lock->cmdindex);
+
+			if (obj && obj->prop && obj->type == OBJTYPE_DOOR) {
+				struct doorobj *door = (struct doorobj *)obj;
+
+				door->keyflags = lock->keyflags;
+				obj->flags2 = (obj->flags2 & ~(OBJFLAG2_LOCKEDFRONT | OBJFLAG2_LOCKEDBACK)) | lock->lockflags;
+				n++;
+			}
+		}
+	}
+
+	return n;
+}
+
 void campaignJoint(s32 leg, bool fade)
 {
 	const struct campaignmission *mission = campaignCurrentMission();
@@ -981,6 +1010,15 @@ void campaignJoint(s32 leg, bool fade)
 		s32 created = setupCreateDeferredProps(to->chrbase, hi);
 
 		sysLogPrintf(LOG_NOTE, "campaign: leg %d: %d characters created (numbers %d-%d)", leg, created, to->chrbase, hi - 1);
+	}
+
+	// the leg's own locks on the doors it shares with earlier legs
+	{
+		s32 locked = campaignApplyLegLocks(mission, leg);
+
+		if (locked) {
+			sysLogPrintf(LOG_NOTE, "campaign: leg %d: %d doors take this leg's lock", leg, locked);
+		}
 	}
 
 	// the leg's kit, on top of what is carried

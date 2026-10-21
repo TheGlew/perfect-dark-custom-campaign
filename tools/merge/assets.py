@@ -27,21 +27,25 @@ def _shift(pos, offset):
 
 
 def merge_pads(parts):
-    """parts: list of dicts {json, offset, waypoints (bool), prefix}. Pads keep their ids (the
-    level prefix keeps them unique); positions of a part are shifted by its offset. The
-    waypoint graph and waygroups are taken only from parts flagged `waypoints` (one graph per
-    geometry region); cover points come from every part."""
+    """parts: list of dicts {json, offset, waypoints (bool), liftbase}. Pads keep their ids
+    (the level prefix keeps them unique); positions of a part are shifted by its offset, and
+    a pad's lift number by the part's `liftbase`, so each world's lifts keep engine slots of
+    their own. The waypoint graph and waygroups are taken only from parts flagged `waypoints`
+    (one graph per geometry region); cover points come from every part."""
     out = {"pads": [], "waypoints": [], "waygroups": [], "cover": []}
     seen = set()
     for part in parts:
         j = part["json"]
         off = part.get("offset", (0, 0, 0))
+        liftbase = part.get("liftbase", 0)
         for p in j["pads"]:
             q = dict(p)
             if q["id"] in seen:
                 raise ValueError("duplicate pad id " + q["id"])
             seen.add(q["id"])
             q["pos"] = _shift(p["pos"], off)
+            if liftbase and q.get("liftnum", 0) > 0:
+                q["liftnum"] = q["liftnum"] + liftbase
             out["pads"].append(q)
         if part.get("waypoints", True):
             out["waypoints"] += [dict(w) for w in j["waypoints"]]

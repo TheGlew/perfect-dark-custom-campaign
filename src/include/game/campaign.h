@@ -62,6 +62,15 @@ struct campaignleg {
 	} ammo[6];
 };
 
+// A door two legs place is one door; when a leg begins, the door takes the lock
+// that leg's setup gave it (its key bits and its one-way flags).
+struct campaignlock {
+	s8 leg;          // -1 ends the table
+	u16 cmdindex;    // the door's command in the merged setup
+	u32 keyflags;
+	u32 lockflags;   // OBJFLAG2_LOCKEDFRONT and OBJFLAG2_LOCKEDBACK
+};
+
 extern s32 g_CampaignLeg; // the current leg of a merged mission, 0 elsewhere
 
 void campaignBootInit(s32 *stagenum);

@@ -4,6 +4,8 @@
 #include "game/campaign.h"
 #include "game/game_00b820.h"
 #include "game/setup.h"
+#include <stdlib.h>
+#include "system.h"
 #include "game/objectives.h"
 #include "game/playerreset.h"
 #include "game/botmgr.h"
@@ -1812,6 +1814,13 @@ void setupCreateProps(s32 stagenum)
 						setupCreateObject(obj, index);
 
 						prop = obj->prop;
+
+#ifndef PLATFORM_N64
+						if (getenv("PD_LOGCHRS")) {
+							sysLogPrintf(LOG_NOTE, "lift model %d at pad %d %s, stops %d %d %d %d", modelnum, obj->pad,
+									prop ? "created" : "not created", lift->pads[0], lift->pads[1], lift->pads[2], lift->pads[3]);
+						}
+#endif
 
 						if (prop) {
 							lift->prevpos.x = prop->pos.x;

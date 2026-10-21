@@ -42,6 +42,18 @@ def load_bg(name):
     return bgfile.BgFile.parse(open(os.path.join(BGDATA, "bg_%s.seg" % name), "rb").read())
 
 
+def lift_offsets(spec):
+    """Lift number offsets per world: a later world's lift n becomes n + offset, where the
+    offset is the highest lift number the worlds before it use (pads name lifts by number,
+    and the engine keeps one table of them)."""
+    offs = []
+    total = 0
+    for w in spec["worlds"]:
+        offs.append(total)
+        total += max([p.get("liftnum", 0) for n in w["pads"] for p in assets.load_pads(n)["pads"]] + [0])
+    return offs
+
+
 def room_offsets(spec):
     """Room number offsets per world: a later world's room r becomes r + offset, where the
     offset is the number of real rooms (room 0 excluded) in the worlds before it."""
@@ -62,9 +74,10 @@ def build_geometry(key, outdir):
         merged = bgfile.merge(merged, load_bg(w["bg"]), w["offset"])
     tiles = assets.merge_tiles([{"json": assets.load_tiles(w["bg"]), "offset": w["offset"]} for w in worlds])
     padparts = []
-    for w in worlds:
+    lifts = lift_offsets(spec)
+    for wi, w in enumerate(worlds):
         for p in w["pads"]:
-            padparts.append({"json": assets.load_pads(p), "offset": w["offset"], "waypoints": p == w["graph"]})
+            padparts.append({"json": assets.load_pads(p), "offset": w["offset"], "waypoints": p == w["graph"], "liftbase": lifts[wi]})
     pads = assets.merge_pads(padparts)
     os.makedirs(os.path.join(outdir, "bgdata"), exist_ok=True)
     open(os.path.join(outdir, "bgdata", "bg_%s.seg" % key), "wb").write(merged.write())
@@ -73,6 +86,7 @@ def build_geometry(key, outdir):
     return {
         "rooms": merged.numrooms,
         "room_offsets": room_offsets(spec),
+        "lift_offsets": lift_offsets(spec),
         "pads": len(pads["pads"]),
         "waypoints": len(pads["waypoints"]),
         "portals": len(merged.portals),

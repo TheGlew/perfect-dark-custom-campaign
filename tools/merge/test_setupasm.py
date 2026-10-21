@@ -12,7 +12,12 @@ ROOT = setupasm.ROOT
 def compare(name):
     src = os.path.join(ROOT, "src", "setups", "setup%s.c" % name)
     rom = os.path.join(ROOT, "extracted", "ntsc-final", "files", "setup", "setup%s.bin" % name)
-    a = setupasm.assemble_file(src)
+    # the level's own pads header, not every header in the folder: a merged mission's
+    # (dd.h) names the same pads at other indices
+    symbols = [os.path.join(setupasm.GENERATED, "lang", f) for f in os.listdir(os.path.join(setupasm.GENERATED, "lang")) if f.endswith(".h")]
+    symbols += [p for p in (os.path.join(setupasm.GENERATED, "pads", name + ".h"),
+                            os.path.join(ROOT, "src", "generated", "ntsc-final", "pads", name + ".h")) if os.path.exists(p)]
+    a = setupasm.assemble_file(src, symbol_paths=symbols)
     b = setupbin.Setup.parse(open(rom, "rb").read())
     problems = []
     if a.props != b.props:

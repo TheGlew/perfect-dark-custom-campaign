@@ -13,8 +13,12 @@ collide or that the engine must tell apart:
   - the intro section is the first leg's; later legs' intro weapons are recorded for the
     engine to hand out at the joint
   - later legs' characters start on a gate list that waits for the leg to begin
-  - structural objects a later leg places where an earlier one already did (same type, model
-    and pad) are never created, and the later leg's tag is pointed at the earlier object
+  - an object a later leg places where an earlier one already did (same type, model and
+    place) is never created, and the later leg's tags and links point at the earlier object;
+    a lift that shares a stop with an earlier leg's lift is that lift, which gains the stops
+    and doors the later leg gives it
+  - lift numbers of a leg in a later world are offset, as its pads' are, so two worlds' lifts
+    never share an engine slot
 
 The result assembles with setupasm.py like any stock setup."""
 import json
@@ -28,10 +32,13 @@ from merge import macros  # noqa: E402
 ROOT = macros.ROOT
 SETUPS = os.path.join(ROOT, "src", "setups")
 
-# One command each: structural things that exist in the world whichever leg placed them.
-DEDUPE_TYPES = {"door", "lift", "glass", "tinted_glass", "safe", "fan", "alarm", "cctv",
-                "singlemonitor", "multimonitor", "hangingmonitors", "autogun", "escastep"}
-EXCLUDE_FLAGS = "OBJFLAG2_EXCLUDE_A | OBJFLAG2_EXCLUDE_SA | OBJFLAG2_EXCLUDE_PA | OBJFLAG2_EXCLUDE_PD"
+# One command each: things that exist in the world whichever leg placed them. Lifts are
+# matched by their stops, in merge_props. Pickups (weapons, keys, shields, mines) are not
+# here: a later leg's is its own, wherever it lies.
+DEDUPE_TYPES = {"door", "glass", "tinted_glass", "safe", "fan", "singlemonitor", "multimonitor",
+                "autogun", "escastep", "stdobject", "hover_prop", "hovercar", "hoverbike",
+                "chopper", "ammocrate", "ammocratemulti", "camera", "gasbottle", "debris"}
+EXCLUDE_ORDER = ["A", "SA", "PA", "PD"]  # OBJFLAG2_EXCLUDE_<difficulty>
 CHR_SPECIAL_MIN = 0xF0  # chr operands at or above this are the engine's special values
 
 
@@ -48,6 +55,7 @@ class Leg:
         self.objective_base = objective_base
         self.path_base = path_base
         self.pad_base = 0             # where this leg's own pads start in the merged pads file
+        self.lift_base = 0            # added to the leg's lift numbers (a later world's pads carry their own)
         self.outro = outro            # name of the AI list whose end_level is the success exit
         self.final = final
         self.prefix = "L%d_" % index
@@ -418,6 +426,8 @@ class Merger:
             return "if_stage_flag_w_eq(%d, %s, %s, %s)" % (leg.index, new_args[0], new_args[1], new_args[2])
         if name == "if_all_objectives_complete":
             return "if_objectives_range_complete(%d, %d, %s)" % (leg.objective_base, leg.objective_base + leg.num_objectives - 1, new_args[0])
+        if name == "activate_lift" and is_int(args[0]) and leg.lift_base:
+            new_args[0] = fmt(int(args[0].strip(), 0) + leg.lift_base)
         if name == "assign_path":
             v = self.value_of(leg, args[0])
             if v is not None:
@@ -530,106 +540,201 @@ class Merger:
         out.sort(key=lambda t: t[0])
         return [c for _, c in out]
 
-    def place_key(self, name, args):
-        """What makes two structural objects the same thing: type, model and where they stand.
-        Pads are compared by position when the mission's pads are known, so a door that
-        Defection and Extraction both place (under different pad names) is found."""
-        params = self.sigs[name]
-        model = args[params.index("model")].strip()
-        pad = args[params.index("pad")].strip()
-        pos = self.pad_position(pad)
-        if pos is not None:
-            return (name, model, tuple(int(round(c / 10.0)) for c in pos))
-        return (name, model, pad)
-
     def pad_position(self, pad):
-        """A pad's position in the merged world, by name or, failing that, by the index the
-        mission's symbol headers give the name (Area 51's three levels name one pads file)."""
+        """A pad's position in the merged world: by name, by the index the mission's symbol
+        headers give the name (Area 51's three levels name one pads file), or by number (an
+        index into the merged pads, already rebased). None when the token is not a pad: -1,
+        an unknown name, an index past the end."""
+        pad = pad.strip()
         if pad in self.pad_positions:
             return self.pad_positions[pad]
         if self.pad_by_index is None:
             from merge import setupasm
             self.pad_by_index = list(self.pad_positions.values()) if self.pad_positions else []
             self.pad_symbols = setupasm.load_enums(self.symbol_paths) if self.symbol_paths else {}
-        idx = self.pad_symbols.get(pad)
+        idx = int(pad, 0) if is_int(pad) else self.pad_symbols.get(pad)
         if idx is not None and 0 <= idx < len(self.pad_by_index):
             return self.pad_by_index[idx]
         return None
 
+    def place_of(self, pad):
+        """Where a pad stands, to the decimetre; None when the token is not a pad."""
+        pos = self.pad_position(pad)
+        if pos is None:
+            return None
+        return tuple(int(round(c / 10.0)) for c in pos)
+
+    def place_key(self, name, args):
+        """What makes two structural objects the same thing: type, model and where they stand.
+        Pads are compared by position, so a door that Defection and Extraction both place
+        (under different pad names) is found. None for an object that stands on no pad."""
+        params = self.sigs[name]
+        if "pad" not in params or "model" not in params:
+            return None
+        place = self.place_of(args[params.index("pad")])
+        if place is None:
+            return None
+        return (name, args[params.index("model")].strip(), place)
+
+    def lift_stops(self, leg, li, args):
+        """A lift's four stops as [place, pad token, door reference]: the place None for an
+        unused stop (pad -1), the door a (leg, call) reference or None."""
+        params = self.sigs["lift"]
+        out = []
+        for i in range(1, 5):
+            padtok = args[params.index("pad%d" % i)].strip()
+            doortok = args[params.index("door%d" % i)].strip()
+            v = int(padtok, 0) if is_int(padtok) else None
+            place = None if v is not None and v < 0 else self.place_of(padtok)
+            door = (leg.index, li + int(doortok, 0)) if is_int(doortok) and int(doortok, 0) else None
+            out.append([place, padtok, door])
+        return out
+
+    @staticmethod
+    def lock_of(name, params, args):
+        """A door's lock as the setup states it: its key bits and its locked-side flags."""
+        if name != "door":
+            return None
+        keyflags = args[params.index("keyflags")].strip()
+        locked = sorted(re.findall(r"OBJFLAG2_LOCKED(FRONT|BACK)\b", args[params.index("flags2")]))
+        key = int(keyflags, 0) if is_int(keyflags) else keyflags
+        return (key, tuple(locked)) if key or locked else None
+
     def merge_props(self):
-        placed = {}  # place key -> absolute command index of the kept object, from earlier legs
-        merged = []  # raw call texts in order
-        index = 0
+        """One props list from the legs'. A structural object a later leg places where an
+        earlier leg already placed one of the same type and model is excluded, never created,
+        and the later leg's tags and links point at the earlier object, so the thing exists
+        once and what happened to it carries. A lift is the same lift when it shares a stop:
+        the earlier leg's lift gains the later leg's other stops and their doors, and the
+        later leg's lift-door links are renumbered to the merged stops. Where the earlier
+        object exists only on some difficulties, the later one is excluded on those alone."""
+        calls = {leg.index: self.prop_calls(leg) for leg in self.legs}
+        self.locks = []   # (leg, command index of the door, keyflags, locked-side flags) set when the leg begins
+        drop = set()      # (leg, call) never emitted
+        dup_of = {}       # (leg, call) of a later copy -> (leg, call) of the object kept
+        placed = {}       # place key -> (leg, call)
+        lifts = {}        # (leg, call) of a kept lift -> [model, stops]
+        stopmap = {}      # (leg, call) of a lift copy -> {its stop: the merged lift's stop}
         for leg in self.legs:
-            calls = self.prop_calls(leg)
-            # absolute index of each call within the merged list
-            tag_retarget = {}  # local call index -> absolute index to point at
-            excluded = set()
             mine = {}
-            kept_abs_guess = {}
-            # first pass: what this leg places where an earlier leg already did
-            for li, (name, args, raw) in enumerate(calls):
-                if name in ("briefing",) and leg.index > 0:
-                    excluded.add(("drop", li))
-                    continue
-                if name == "endprops":
-                    excluded.add(("drop", li))
-                    continue
-                if name in DEDUPE_TYPES:
+            mylifts = {}
+            for li, (name, args, raw) in enumerate(calls[leg.index]):
+                ref = (leg.index, li)
+                if (name == "briefing" and leg.index > 0) or name == "endprops":
+                    drop.add(ref)
+                elif name == "lift":
+                    stops = self.lift_stops(leg, li, args)
+                    places = {s[0] for s in stops if s[0] is not None}
+                    model = args[self.sigs["lift"].index("model")].strip()
+                    kept = next((r for r, (m, ks) in lifts.items() if m == model and places & {s[0] for s in ks}), None)
+                    if kept is None:
+                        mylifts[ref] = [model, stops]
+                        continue
+                    dup_of[ref] = kept
+                    kstops = lifts[kept][1]
+                    smap = {}
+                    for i, (place, padtok, door) in enumerate(stops):
+                        if place is None:
+                            continue
+                        j = next((j for j, s in enumerate(kstops) if s[0] == place), None)
+                        if j is None:
+                            j = next((j for j, s in enumerate(kstops) if s[0] is None), None)
+                            if j is None:
+                                raise SystemExit("lift %s: the legs give it more than four stops" % model)
+                            kstops[j] = [place, padtok, door]
+                        elif kstops[j][2] is None and door is not None:
+                            kstops[j][2] = door
+                        smap[i] = j
+                    stopmap[ref] = smap
+                elif name in DEDUPE_TYPES:
                     key = self.place_key(name, args)
+                    if key is None:
+                        continue
                     if key in placed:
-                        excluded.add(("exclude", li))
-                        tag_retarget[li] = placed[key]
+                        dup_of[ref] = placed[key]
                     elif key not in mine:
-                        mine[key] = li
-            # emit, patching excluded objects and retargeting tags
-            kept_abs = {}
-            for li, (name, args, raw) in enumerate(calls):
-                if ("drop", li) in excluded:
-                    continue
-                kept_abs[li] = index
-                index += 1
-            # second pass to write with knowledge of absolute positions
-            for li, (name, args, raw) in enumerate(calls):
-                if ("drop", li) in excluded:
-                    continue
-                if ("exclude", li) in excluded:
-                    params = self.sigs[name]
-                    fi = params.index("flags2")
-                    new_args = list(args)
-                    new_args[fi] = "(%s) | %s" % (args[fi].strip() or "0", EXCLUDE_FLAGS)
-                    raw = "%s(%s)" % (name, ", ".join(new_args))
+                        mine[key] = ref
+            placed.update(mine)
+            lifts.update(mylifts)
+        # absolute command indices, the dropped commands gone
+        abs_index = {}
+        n = 0
+        for leg in self.legs:
+            for li in range(len(calls[leg.index])):
+                if (leg.index, li) not in drop:
+                    abs_index[(leg.index, li)] = n
+                    n += 1
+
+        def target(ref):
+            return abs_index[dup_of.get(ref, ref)]
+
+        tagged = set()
+        for leg in self.legs:
+            for li, (name, args, raw) in enumerate(calls[leg.index]):
                 if name == "tag":
-                    # tag(id, value): value is the offset to the tagged object; retarget if excluded
-                    target_local = li + int(args[1].strip(), 0)
-                    if target_local in tag_retarget:
-                        target_abs = tag_retarget[target_local]
-                    else:
-                        target_abs = kept_abs.get(target_local, kept_abs[li] + int(args[1].strip(), 0))
-                    raw = "tag(%s, %d)" % (args[0].strip(), target_abs - kept_abs[li])
-                elif name in ("lift", "lift_door", "padlocked_door", "link_guns", "rename_object", "safeitem", "conditional_scenery", "blocked_path"):
-                    # relative offsets to other commands in the same leg: dropped commands
-                    # shift them, and a reference to an object this leg no longer places
-                    # (an earlier leg placed it) follows the tag to that earlier object
-                    params = self.sigs[name]
-                    new_args = list(args)
+                    tagged.add((leg.index, li + int(args[1].strip(), 0)))
+        merged = []
+        for leg in self.legs:
+            report = {"excluded": {}, "lifts": [], "differing": 0, "locks": [], "variants": 0, "tagged_variants": 0}
+            for li, (name, args, raw) in enumerate(calls[leg.index]):
+                ref = (leg.index, li)
+                if ref in drop:
+                    continue
+                params = self.sigs[name]
+                new_args = list(args)
+                changed = False
+                if ref in dup_of:
+                    kleg, kli = dup_of[ref]
+                    kargs = calls[kleg][kli][1]
+                    fi = params.index("flags2")
+                    kept_excl = set(re.findall(r"OBJFLAG2_EXCLUDE_(A|SA|PA|PD)\b", kargs[fi]))
+                    need = [d for d in EXCLUDE_ORDER if d not in kept_excl]
+                    new_args[fi] = "(%s) | %s" % (args[fi].strip() or "0", " | ".join("OBJFLAG2_EXCLUDE_" + d for d in need))
+                    changed = True
+                    report["excluded"][name] = report["excluded"].get(name, 0) + 1
+                    if kept_excl:
+                        report["variants"] += 1
+                        if ref in tagged:
+                            report["tagged_variants"] += 1
+                    skip = {"pad", "pad1", "pad2", "pad3", "pad4", "door1", "door2", "door3", "door4", "flags2"}
+                    if any(a.strip() != b.strip() for p, a, b in zip(params, args, kargs) if p not in skip):
+                        report["differing"] += 1
+                    mine_lock, kept_lock = self.lock_of(name, params, args), self.lock_of(name, params, kargs)
+                    if kept_lock != mine_lock:
+                        # one door, two locks: the earlier leg's until this leg begins, then this leg's
+                        sides = sorted(re.findall(r"OBJFLAG2_LOCKED(FRONT|BACK)\b", args[params.index("flags2")]))
+                        self.locks.append((leg.index, abs_index[(kleg, kli)], args[params.index("keyflags")].strip(),
+                                           " | ".join("OBJFLAG2_LOCKED" + s for s in sides) or "0"))
+                        report["locks"].append([args[params.index("model")].strip(), list(self.place_of(args[params.index("pad")])),
+                                                self.legs[kleg].name, kept_lock, mine_lock])
+                if name == "tag":
+                    new_args[1] = str(target((leg.index, li + int(args[1].strip(), 0))) - abs_index[ref])
+                    changed = True
+                elif name == "lift" and ref in lifts:
+                    model, stops = lifts[ref]
+                    for i, (place, padtok, door) in enumerate(stops):
+                        new_args[params.index("pad%d" % (i + 1))] = padtok
+                        new_args[params.index("door%d" % (i + 1))] = str(target(door) - abs_index[ref]) if door else "0"
+                    changed = True
+                    if any(s[0] is not None for s in stops) and len([s for s in stops if s[0] is not None]) > len([s for s in self.lift_stops(leg, li, args) if s[0] is not None]):
+                        report["lifts"].append([model, [s[0] for s in stops if s[0] is not None]])
+                else:
                     for pi, p in enumerate(params):
                         if macros.kind_of(name, p) == "offset" and is_int(args[pi]):
                             off = int(args[pi].strip(), 0)
-                            if off == 0:
-                                continue  # no link
-                            tl = li + off
-                            if tl in tag_retarget:
-                                new_args[pi] = str(tag_retarget[tl] - kept_abs[li])
-                            elif tl in kept_abs:
-                                new_args[pi] = str(kept_abs[tl] - kept_abs[li])
-                    raw = "%s(%s)" % (name, ", ".join(new_args))
+                            if off:
+                                new_args[pi] = str(target((leg.index, li + off)) - abs_index[ref])
+                                changed = True
+                    if name == "lift_door":
+                        lref = (leg.index, li + int(args[1].strip(), 0))
+                        if lref in stopmap:
+                            new_args[2] = str(stopmap[lref][int(args[2].strip(), 0)])
+                            changed = True
+                if changed:
+                    raw = "%s(%s)" % (name, ", ".join(a.strip() for a in new_args))
                 merged.append("\t" + raw)
-            leg.excluded_count = sum(1 for e in excluded if e[0] == "exclude")
-            # this leg's structures now count as placed, for the legs after it
-            for key, li in mine.items():
-                if li in kept_abs:
-                    placed[key] = kept_abs[li]
+            leg.excluded_count = sum(report["excluded"].values())
+            leg.dedup = report
         merged.append("\tendprops")
         return "\n".join(merged)
 
@@ -674,6 +779,7 @@ class Merger:
                 "objective_first": leg.objective_base, "objective_count": leg.num_objectives,
                 "spawn_pad": leg.spawn_pad, "intro": [[n, [a.strip() for a in args]] for n, args in leg.intro],
                 "excluded_objects": getattr(leg, "excluded_count", 0), "gates": len(leg.gates),
+                "dedup": getattr(leg, "dedup", {}),
             })
         json.dump(side, open(self.sidecar, "w"), indent=1)
         self.write_legs_table(side)
@@ -701,6 +807,9 @@ class Merger:
                 leg["chr_base"], leg["tag_base"], off[0], off[1], off[2], outfit, len(weapons), w, len(ammo), am))
         text = "/* Generated by tools/merge/setupmerge.py for merged mission %s. Do not edit. */\n" % key
         text += "static const struct campaignleg g_CampaignLegs_%s[] = {\n%s\n};\n" % (key, "\n".join(rows))
+        # a door two legs place is one door; each leg locks it as its own setup says, from its joint
+        locks = ["\t{ %d, %d, %s, %s }," % l for l in getattr(self, "locks", [])] + ["\t{ -1, 0, 0, 0 },"]
+        text += "static const struct campaignlock g_CampaignLocks_%s[] = {\n%s\n};\n" % (key, "\n".join(locks))
         open(os.path.join(os.path.dirname(self.out_c), "legs_%s.inc.c" % key), "w").write(text)
 
     def run(self):
