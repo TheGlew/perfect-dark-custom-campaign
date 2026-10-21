@@ -1490,6 +1490,100 @@ static void setupMarkLiftDoors()
 	}
 }
 
+/**
+ * A prop assigned to a character numbered deferbase or above: left out at
+ * stage load in a merged mission, created with its character at the joint.
+ */
+static bool setupIsAssignedToChrFrom(struct defaultobj *obj, s32 deferbase)
+{
+	return (obj->flags & OBJFLAG_ASSIGNEDTOCHR) && obj->pad >= deferbase;
+}
+
+static void setupCreateShield(struct shieldobj *shield, s32 cmdindex)
+{
+	shield->initialamount = *(s32 *)&shield->initialamount / 65536.0f;
+	shield->amount = shield->initialamount;
+	setupCreateObject(&shield->base, cmdindex);
+}
+
+/**
+ * Create what stage load left out for one leg of a merged mission: its
+ * characters (numbers chrlo to chrhi - 1) and the weapons, keys, hats and
+ * shields assigned to them. Called at the leg's joint, in the order the props
+ * list gives, which is the order stage load would have used. Returns how many
+ * of the leg's characters exist afterwards; one blocked by something solid at
+ * its pad is logged by bodyAllocateChr under PD_LOGCHRS.
+ */
+s32 setupCreateDeferredProps(s32 chrlo, s32 chrhi)
+{
+	struct defaultobj *obj;
+	u32 diffflag = 1 << (lvGetDifficulty() + 4);
+	s32 index = 0;
+	s32 created = 0;
+
+	if (g_StageSetup.props == NULL) {
+		return 0;
+	}
+
+	obj = (struct defaultobj *)g_StageSetup.props;
+
+	while (obj->type != OBJTYPE_END) {
+		switch (obj->type) {
+		case OBJTYPE_CHR:
+			{
+				struct packedchr *packed = (struct packedchr *)obj;
+
+				if (packed->chrnum >= chrlo && packed->chrnum < chrhi) {
+					bodyAllocateChr(g_Vars.stagenum, packed, index);
+
+					if (chrFindByLiteralId(packed->chrnum)) {
+						created++;
+					}
+				}
+			}
+			break;
+		case OBJTYPE_GRENADEPROB:
+			{
+				struct grenadeprobobj *grenadeprob = (struct grenadeprobobj *)obj;
+
+				if (grenadeprob->chrnum >= chrlo && grenadeprob->chrnum < chrhi) {
+					struct chrdata *chr = chrFindByLiteralId(grenadeprob->chrnum);
+
+					if (chr && chr->prop && chr->model) {
+						chr->grenadeprob = grenadeprob->probability;
+					}
+				}
+			}
+			break;
+		case OBJTYPE_WEAPON:
+			if (setupIsAssignedToChrFrom(obj, chrlo) && obj->pad < chrhi && (obj->flags2 & diffflag) == 0) {
+				setupPlaceWeapon((struct weaponobj *)obj, index);
+			}
+			break;
+		case OBJTYPE_KEY:
+			if (setupIsAssignedToChrFrom(obj, chrlo) && obj->pad < chrhi && (obj->flags2 & diffflag) == 0) {
+				setupCreateKey((struct keyobj *)obj, index);
+			}
+			break;
+		case OBJTYPE_HAT:
+			if (setupIsAssignedToChrFrom(obj, chrlo) && obj->pad < chrhi && (obj->flags2 & diffflag) == 0) {
+				setupCreateHat((struct hatobj *)obj, index);
+			}
+			break;
+		case OBJTYPE_SHIELD:
+			if (setupIsAssignedToChrFrom(obj, chrlo) && obj->pad < chrhi && (obj->flags2 & diffflag) == 0) {
+				setupCreateShield((struct shieldobj *)obj, index);
+			}
+			break;
+		}
+
+		obj = (struct defaultobj *)((u32 *)obj + setupGetCmdLength((u32 *)obj));
+		index++;
+	}
+
+	return created;
+}
+
 void setupCreateProps(s32 stagenum)
 {
 	s32 withchrs = !argFindByPrefix(1, "-nochr") && !argFindByPrefix(1, "-noprop");
@@ -1568,6 +1662,10 @@ void setupCreateProps(s32 stagenum)
 				setupMarkLiftDoors();
 			}
 
+			// a merged mission's later legs: their characters, and what is
+			// assigned to them, arrive at their leg's joint (setupCreateDeferredProps)
+			s32 deferbase = campaignDeferredChrBase();
+
 			obj = (struct defaultobj *)g_StageSetup.props;
 
 			while (obj->type != OBJTYPE_END) {
@@ -1576,7 +1674,7 @@ void setupCreateProps(s32 stagenum)
 					{
 						struct grenadeprobobj *grenadeprob = (struct grenadeprobobj *)obj;
 						u8 probability = grenadeprob->probability;
-						struct chrdata *chr = chrFindByLiteralId(grenadeprob->chrnum);
+						struct chrdata *chr = grenadeprob->chrnum < deferbase ? chrFindByLiteralId(grenadeprob->chrnum) : NULL;
 
 						if (chr && chr->prop && chr->model) {
 							chr->grenadeprob = probability;
@@ -1584,7 +1682,7 @@ void setupCreateProps(s32 stagenum)
 					}
 					break;
 				case OBJTYPE_CHR:
-					if (withchrs) {
+					if (withchrs && ((struct packedchr *)obj)->chrnum < deferbase) {
 						bodyAllocateChr(stagenum, (struct packedchr *) obj, index);
 					}
 					break;
@@ -1604,17 +1702,17 @@ void setupCreateProps(s32 stagenum)
 					}
 					break;
 				case OBJTYPE_WEAPON:
-					if (withchrs && (obj->flags2 & diffflag) == 0) {
+					if (withchrs && (obj->flags2 & diffflag) == 0 && !setupIsAssignedToChrFrom(obj, deferbase)) {
 						setupPlaceWeapon((struct weaponobj *)obj, index);
 					}
 					break;
 				case OBJTYPE_KEY:
-					if (withchrs && (obj->flags2 & diffflag) == 0) {
+					if (withchrs && (obj->flags2 & diffflag) == 0 && !setupIsAssignedToChrFrom(obj, deferbase)) {
 						setupCreateKey((struct keyobj *)obj, index);
 					}
 					break;
 				case OBJTYPE_HAT:
-					if (withchrs && (obj->flags2 & diffflag) == 0) {
+					if (withchrs && (obj->flags2 & diffflag) == 0 && !setupIsAssignedToChrFrom(obj, deferbase)) {
 						setupCreateHat((struct hatobj *)obj, index);
 					}
 					break;
@@ -1644,17 +1742,14 @@ void setupCreateProps(s32 stagenum)
 					}
 					break;
 				case OBJTYPE_SHIELD:
-					if (withobjs) {
+					if (withobjs && !setupIsAssignedToChrFrom(obj, deferbase)) {
 #if VERSION >= VERSION_JPN_FINAL
 						if ((obj->flags2 & diffflag) == 0)
 #else
 						if ((obj->flags2 & diffflag) == 0 || g_Jpn)
 #endif
 						{
-							struct shieldobj *shield = (struct shieldobj *)obj;
-							shield->initialamount = *(s32 *)&shield->initialamount / 65536.0f;
-							shield->amount = shield->initialamount;
-							setupCreateObject(obj, index);
+							setupCreateShield((struct shieldobj *)obj, index);
 						}
 					}
 					break;

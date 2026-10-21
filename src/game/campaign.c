@@ -21,6 +21,7 @@
 #include "data.h"
 #include "types.h"
 #include "game/campaign.h"
+#include "game/setup.h"
 #include "game/bondgun.h"
 #include "game/challenge.h"
 #include "game/cheats.h"
@@ -709,6 +710,7 @@ static u32 s_ForcedObjectives = 0;              // bit per objective: complete f
 static s32 s_PendingWarpPad = -1;               // a joint's teleport, waiting for the white screen
 static s32 s_LegStartTime60 = 0;
 static s32 s_ResumeLeg = 0;                     // joints to run on the first tick after a reset
+static bool s_WarpWaitLogged = false;
 
 static const struct campaignmission *campaignMissionForStage(s32 stagenum)
 {
@@ -765,6 +767,38 @@ s32 campaignLegTag(s32 tagnum)
 	}
 
 	return tagnum;
+}
+
+/**
+ * The characters of a merged mission's later legs, with whatever is assigned
+ * to them, are left out at stage load and created at their leg's joint: three
+ * levels' guards do not share one building from the first second. This is
+ * the first character number stage load leaves out; nothing elsewhere.
+ */
+s32 campaignDeferredChrBase(void)
+{
+	const struct campaignmission *mission = campaignCurrentMission();
+
+	if (mission && mission->numlegs > 1) {
+		return mission->legs[1].chrbase;
+	}
+
+	return 0x10000;
+}
+
+/**
+ * An objective of a leg the mission has not reached is incomplete whatever
+ * the world says: its characters and items are not there yet.
+ */
+bool campaignObjectivePending(s32 index)
+{
+	const struct campaignmission *mission = campaignCurrentMission();
+
+	if (mission && g_CampaignLeg + 1 < mission->numlegs) {
+		return index >= mission->legs[g_CampaignLeg + 1].objfirst;
+	}
+
+	return false;
 }
 
 /**
@@ -941,6 +975,14 @@ void campaignJoint(s32 leg, bool fade)
 	g_CampaignLeg = leg;
 	s_LegStartTime60 = lvGetStageTime60();
 
+	// the leg's own characters, and what they carry
+	{
+		s32 hi = leg + 1 < mission->numlegs ? mission->legs[leg + 1].chrbase : 0x10000;
+		s32 created = setupCreateDeferredProps(to->chrbase, hi);
+
+		sysLogPrintf(LOG_NOTE, "campaign: leg %d: %d characters created (numbers %d-%d)", leg, created, to->chrbase, hi - 1);
+	}
+
 	// the leg's kit, on top of what is carried
 	for (i = 0; i < to->numweapons; i++) {
 		campaignGiveWeapon(to->weapons[i], -1);
@@ -1055,10 +1097,22 @@ static void campaignTickMerged(struct player *player)
 	}
 
 	if (s_PendingWarpPad >= 0 && player->teleportstate == TELEPORTSTATE_WHITE) {
-		campaignWarpPlayerToPad(s_PendingWarpPad);
-		s_PendingWarpPad = -1;
-		player->teleportstate = TELEPORTSTATE_EXITING;
-		player->teleporttime = 0;
+		// the white screen waits for us; the body may be away for a moment
+		// (a cutscene the new leg's intro starts, or its end), and moving a
+		// bodiless player is a crash
+		if (player->prop && player->prop->chr && player->prop->chr->model && player->haschrbody) {
+			campaignWarpPlayerToPad(s_PendingWarpPad);
+			s_PendingWarpPad = -1;
+			player->teleportstate = TELEPORTSTATE_EXITING;
+			player->teleporttime = 0;
+		} else if (!s_WarpWaitLogged) {
+			s_WarpWaitLogged = true;
+			sysLogPrintf(LOG_NOTE, "campaign: warp to pad %d waits: body %d model %d cutscene %d tickmode %d", s_PendingWarpPad,
+					player->haschrbody, player->prop && player->prop->chr && player->prop->chr->model ? 1 : 0,
+					g_Vars.in_cutscene, g_Vars.tickmode);
+		}
+	} else {
+		s_WarpWaitLogged = false;
 	}
 
 	if (g_CampaignDebugAutoJoint > 0 && s_PendingWarpPad < 0 && g_CampaignLeg + 1 < mission->numlegs

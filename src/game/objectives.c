@@ -18,6 +18,7 @@
 #include "bss.h"
 #include "lib/dma.h"
 #include "lib/memp.h"
+#include "system.h"
 #include "lib/rng.h"
 #include "lib/str.h"
 #include "lib/mtx.h"
@@ -207,6 +208,9 @@ s32 objectiveCheck(s32 index)
 		if (campaignObjectiveForced(index)) {
 			// a finished leg of a merged mission: complete whatever the world says
 			objstatus = OBJECTIVE_COMPLETE;
+		} else if (campaignObjectivePending(index)) {
+			// a leg not yet reached: its characters and items are not there to check
+			objstatus = OBJECTIVE_INCOMPLETE;
 		} else if (g_Objectives[index] == NULL) {
 			objstatus = g_ObjectiveStatuses[index];
 		} else {
@@ -397,6 +401,11 @@ void objectivesCheckAll(void)
 
 			if (g_ObjectiveStatuses[i] != status) {
 				g_ObjectiveStatuses[i] = status;
+
+				sysLogPrintf(LOG_NOTE, "objective %d (shown as %d, difficulty bits 0x%x) -> %s at %d", i, availableindex + 1,
+						objectiveGetDifficultyBits(i),
+						status == OBJECTIVE_COMPLETE ? "complete" : status == OBJECTIVE_FAILED ? "failed" : "incomplete",
+						lvGetStageTime60());
 
 				if (objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty())) {
 #if VERSION >= VERSION_JPN_FINAL

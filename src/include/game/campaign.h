@@ -79,6 +79,8 @@ s32 campaignFirstLegStage(s32 stagenum);
 s32 campaignRedirectStage(s32 stagenum);
 s32 campaignLegTag(s32 tagnum);
 void campaignLegOffset(struct coord *pos);
+s32 campaignDeferredChrBase(void);
+bool campaignObjectivePending(s32 index);
 void campaignJoint(s32 leg, bool fade);
 void campaignLoadLangBanks(s32 stagenum);
 u32 campaignObjectiveFlags(s32 index);

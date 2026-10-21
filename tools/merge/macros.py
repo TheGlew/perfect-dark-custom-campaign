@@ -171,6 +171,8 @@ def _split_top(s):
 def kind_of(macro, param):
     if macro == "tag" and param == "id":
         return "obj"  # tag(id, value): the tag number scripts name the object by
+    if macro == "beginobjective" and param == "value":
+        return "objective"  # beginobjective(value, text, diffbit): the objective's index
     if macro in OFFSET_PARAMS and param in OFFSET_PARAMS[macro]:
         return "offset"
     if macro == "lift" and param in ("door1", "door2", "door3", "door4"):

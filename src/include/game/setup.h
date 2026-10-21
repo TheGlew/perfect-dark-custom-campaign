@@ -34,5 +34,6 @@ void setupCreateHov(struct defaultobj *obj, struct hov *hov);
 void setupLoadBriefing(s32 stagenum, u8 *buffer, s32 bufferlen, struct briefing *briefing);
 void setupLoadFiles(s32 stagenum);
 void setupCreateProps(s32 stagenum);
+s32 setupCreateDeferredProps(s32 chrlo, s32 chrhi);
 
 #endif

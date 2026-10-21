@@ -55,6 +55,7 @@ class Leg:
         self.text = None
         self.defines = {}             # original name -> value text
         self.ailist_ids = {}          # old id -> new id
+        self.tag_map = {}             # old object tag -> new, dense across the legs
         self.num_objectives = 0
         self.intro = []               # (macro, args) of this leg's intro
         self.spawn_pad = None
@@ -337,7 +338,7 @@ class Merger:
                 if name.startswith("CHR_") and iv < CHR_SPECIAL_MIN:
                     v = fmt(iv + leg.chr_base)
                 elif name.startswith("OBJ_"):
-                    v = fmt(iv + leg.tag_base)
+                    v = fmt(leg.tag_map.get(iv, iv + leg.tag_base))
                 elif name.startswith("AILIST_") and iv in leg.ailist_ids:
                     v = fmt(leg.ailist_ids[iv])
                 elif name.startswith("PATH_"):
@@ -365,7 +366,7 @@ class Merger:
         if kind == "obj":
             if is_int(t):
                 v = int(t, 0)
-                return fmt(v + leg.tag_base) if v < 0xF0 else t
+                return fmt(leg.tag_map.get(v, v + leg.tag_base)) if v < 0xF0 else t
             return arg
         if kind == "ailist":
             if is_int(t):
@@ -399,6 +400,15 @@ class Merger:
         for i, a in enumerate(args):
             p = params[i] if i < len(params) else "value"
             new_args.append(self.rewrite_arg(leg, name, p, a, args, params))
+        # a prop assigned to a character (a guard's weapon, a keycard, a shield) carries the
+        # character's number in its pad field, whatever the parameter is called
+        if "flags" in params and len(args) > params.index("flags") and "OBJFLAG_ASSIGNEDTOCHR" in args[params.index("flags")]:
+            for pname in ("pad", "chr"):
+                if pname in params and params.index(pname) < len(args):
+                    pi = params.index(pname)
+                    t = args[pi].strip()
+                    if is_int(t) and int(t, 0) < CHR_SPECIAL_MIN:
+                        new_args[pi] = fmt(int(t, 0) + leg.chr_base)
         # stage flags address the leg's word
         if name == "set_stage_flag":
             return "set_stage_flag_w(%d, %s)" % (leg.index, new_args[0])
@@ -504,11 +514,21 @@ class Merger:
 
     # ---- props across legs
     def prop_calls(self, leg):
-        """Statement-level prop macro calls in the leg's props body, in order, with raw text."""
+        """Statement-level prop macro calls in the leg's props body, in order, with raw text.
+        A macro written without parentheses (endobjective, endprops) is a command too: it
+        occupies a word, so the offsets between commands count it, and an objective's
+        requirements run on into the next object without its endobjective."""
+        body = leg.props_body
         out = []
-        for start, end, name, args in find_calls(leg.props_body, self.cmd_names):
-            out.append([name, args, leg.props_body[start:end]])
-        return out
+        for start, end, name, args in find_calls(body, self.cmd_names):
+            out.append((start, [name, args, body[start:end]]))
+        bare = re.compile(r"(?m)^[ \t]*([a-z_][a-z0-9_]*)[ \t]*(?://.*)?$")
+        for m in bare.finditer(body):
+            name = m.group(1)
+            if name in self.cmd_names and not self.sigs[name]:
+                out.append((m.start(1), [name, [], name]))
+        out.sort(key=lambda t: t[0])
+        return [c for _, c in out]
 
     def place_key(self, name, args):
         """What makes two structural objects the same thing: type, model and where they stand.
@@ -695,6 +715,18 @@ class Merger:
         for leg in self.legs:
             leg.objective_base = base
             base += leg.num_objectives
+        # tag ids: an AI command names an object by one byte, so the legs' tags are renumbered
+        # densely, each leg's in order after the one before, and the whole mission stays
+        # below the engine's special values
+        base = 0
+        for leg in self.legs:
+            ids = {int(m.group(1), 0) for m in re.finditer(r"(?m)^\s*tag\((0x[0-9a-fA-F]+|\d+),", leg.text)}
+            ids |= {int(v, 0) for n, v in leg.defines.items() if n.startswith("OBJ_") and is_int(v)}
+            leg.tag_base = base
+            leg.tag_map = {old: base + i for i, old in enumerate(sorted(ids))}
+            base += len(ids)
+        if base > 0xF0:
+            raise SystemExit("%d object tags across the legs; AI commands can name at most 0xF0" % base)
         for leg in self.legs:
             self.transform(leg)
         return self.write()
