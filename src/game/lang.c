@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/file.h"
+#include "game/campaign.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
 #include "game/utils.h"
@@ -145,6 +146,8 @@ u16 g_LangFiles[] = {
 u32 langGetLangBankIndexFromStagenum(s32 stagenum)
 {
 	u32 bank;
+
+	stagenum = campaignFirstLegStage(stagenum);
 
 	switch (stagenum) {
 	case STAGE_PELAGIC:       bank = LANGBANK_DAM; break;

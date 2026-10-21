@@ -4,6 +4,8 @@
 #include "game/chraction.h"
 #include "game/chr.h"
 #include "game/body.h"
+#include "system.h"
+#include <stdlib.h>
 #include "game/prop.h"
 #include "game/atan2f.h"
 #include "game/modelmgr.h"
@@ -364,6 +366,11 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	if (cdTestVolume(&pad.pos, 20, rooms, CDTYPE_ALL, CHECKVERTICAL_YES, 200, -200) == CDRESULT_COLLISION
 			&& packed->chair == -1
 			&& (packed->spawnflags & SPAWNFLAG_IGNORECOLLISION) == 0) {
+#ifndef PLATFORM_N64
+		if (getenv("PD_LOGCHRS")) {
+			sysLogPrintf(LOG_NOTE, "chr %d at pad %d (room %d, %.0f %.0f %.0f) not created: something solid there", packed->chrnum, packed->padnum, pad.room, pad.pos.x, pad.pos.y, pad.pos.z);
+		}
+#endif
 		return;
 	}
 
@@ -413,6 +420,12 @@ void bodyAllocateChr(s32 stagenum, struct packedchr *packed, s32 cmdindex)
 	if (model != NULL) {
 		angle = atan2f(pad.look.x, pad.look.z);
 		prop = chrAllocate(model, &pad.pos, rooms, angle, ailistFindById(packed->ailistnum));
+
+#ifndef PLATFORM_N64
+		if (getenv("PD_LOGCHRS")) {
+			sysLogPrintf(LOG_NOTE, "chr %d at pad %d (room %d) list 0x%04x body %d: %s", packed->chrnum, packed->padnum, pad.room, packed->ailistnum, bodynum, prop ? "created" : "NO PROP");
+		}
+#endif
 
 		if (prop != NULL) {
 			propActivate(prop);

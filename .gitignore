@@ -26,3 +26,11 @@ tools/mkrom/mkrom
 CppProperties.json
 .idea
 cmake-build-debug
+
+# written by tools/merge/build_mission.py for the merged missions; mkpads and mktiles read them from here
+src/assets/ntsc-final/pads/a51.json
+src/assets/ntsc-final/pads/chi.json
+src/assets/ntsc-final/pads/dd.json
+src/assets/ntsc-final/tiles/a51.json
+src/assets/ntsc-final/tiles/chi.json
+src/assets/ntsc-final/tiles/dd.json

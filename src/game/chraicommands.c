@@ -2,6 +2,8 @@
 #include "../lib/naudio/n_sndp.h"
 #include "constants.h"
 #include "game/bondmove.h"
+#include "game/campaign.h"
+#include "system.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
 #include "game/chrai.h"
@@ -3200,6 +3202,20 @@ bool aiSetShield(void)
 		amount = amount < 8 ? 8 : amount;
 	}
 
+#ifndef PLATFORM_N64
+	if (g_Vars.chrdata == NULL || g_Vars.chrdata->prop == NULL) {
+		// a chr with no prop (never created, or removed): nothing to shield
+		bool isglobal = false;
+		s32 listid = chraiGetListIdByList(g_Vars.ailist, &isglobal);
+		sysLogPrintf(LOG_WARNING, "set_shield on a chr without a prop: chrnum %d, list 0x%04x%s, body %d, aioffset %d, slot %d",
+				g_Vars.chrdata ? g_Vars.chrdata->chrnum : -1, listid, isglobal ? " (global)" : "",
+				g_Vars.chrdata ? g_Vars.chrdata->bodynum : -1, g_Vars.aioffset,
+				g_Vars.chrdata ? (s32)(g_Vars.chrdata - g_ChrSlots) : -1);
+		g_Vars.aioffset += 4;
+		return false;
+	}
+#endif
+
 	chrSetShield(g_Vars.chrdata, amount);
 
 	g_Vars.aioffset += 4;
@@ -4135,7 +4151,7 @@ bool aiTryEquipWeapon(void)
 		// On NTSC beta, Marquis is disabled entirely on MBR, and the K7 guard
 		// on Investigation PA is excluded here (ie. is given his weapon).
 		if (cheatIsActive(CHEAT_MARQUIS) && g_Vars.stagenum != STAGE_MBR) {
-			if (g_Vars.stagenum == STAGE_INVESTIGATION
+			if (campaignStageIs(STAGE_INVESTIGATION)
 					&& lvGetDifficulty() == DIFF_PA
 					&& cmd[4] == WEAPON_K7AVENGER) {
 				prop = chrGiveWeapon(g_Vars.chrdata, model, cmd[4], flags);
@@ -4200,7 +4216,7 @@ bool aiTryEquipWeapon(void)
 				prop = chrGiveWeapon(g_Vars.chrdata, MODEL_CHRDYROCKET, WEAPON_ROCKETLAUNCHER, flags);
 				break;
 			case WEAPON_K7AVENGER:
-				if (g_Vars.stagenum == STAGE_INVESTIGATION && lvGetDifficulty() == DIFF_PA) {
+				if (campaignStageIs(STAGE_INVESTIGATION) && lvGetDifficulty() == DIFF_PA) {
 					prop = chrGiveWeapon(g_Vars.chrdata, model, cmd[4], flags);
 				} else {
 					prop = chrGiveWeapon(g_Vars.chrdata, MODEL_CHRDYROCKET, WEAPON_ROCKETLAUNCHER, flags);

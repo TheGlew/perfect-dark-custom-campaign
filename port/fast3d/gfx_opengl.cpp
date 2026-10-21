@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <map>
 #include <unordered_map>
@@ -1319,3 +1320,48 @@ struct GfxRenderingAPI gfx_opengl_api = {
     gfx_opengl_set_anisotropy_level,
     gfx_opengl_get_max_anisotropy_level
 };
+
+/**
+ * Frame dump (development switch PD_PCDUMP, driven from gfx_sdl2.cpp): read
+ * the back buffer and write it as a PNG the right way up. The PNG writer's
+ * implementation lives in texpack.cpp.
+ */
+#include "stb/stb_image_write.h"
+
+extern "C" bool gfx_opengl_dump_backbuffer(uint32_t width, uint32_t height, const char *path) {
+    if (width == 0 || height == 0) {
+        return false;
+    }
+    size_t stride = (size_t)width * 3;
+    uint8_t *pixels = (uint8_t *)malloc(stride * height);
+    if (!pixels) {
+        return false;
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glReadBuffer(GL_BACK);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glFinish();
+    glReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+    GLenum err = glGetError();
+    if (err) {
+        sysLogPrintf(LOG_WARNING, "frame dump: glReadPixels error 0x%x (%ux%u)", (unsigned)err, width, height);
+    }
+    // GL rows run bottom to top; flip in place
+    uint8_t *tmp = (uint8_t *)malloc(stride);
+    if (tmp) {
+        for (uint32_t row = 0; row < height / 2; row++) {
+            uint8_t *a = pixels + (size_t)row * stride;
+            uint8_t *b = pixels + (size_t)(height - 1 - row) * stride;
+            memcpy(tmp, a, stride);
+            memcpy(a, b, stride);
+            memcpy(b, tmp, stride);
+        }
+        free(tmp);
+    }
+    bool ok = stbi_write_png(path, (int)width, (int)height, 3, pixels, (int)stride) != 0;
+    if (!ok) {
+        sysLogPrintf(LOG_WARNING, "frame dump: could not write %s", path);
+    }
+    free(pixels);
+    return ok;
+}

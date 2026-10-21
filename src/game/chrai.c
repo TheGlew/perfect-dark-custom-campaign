@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "game/chraction.h"
 #include "game/chrai.h"
+#include "game/campaign.h"
 #include "game/chraicommands.h"
 #include "bss.h"
 #include "lib/rng.h"
@@ -497,6 +498,13 @@ bool (*g_CommandPointers[])(void) = {
 #if VERSION >= VERSION_NTSC_1_0
 	/*0x01df*/ aiIfChrSameFloorDistanceToPadLessThan,
 	/*0x01e0*/ aiRemoveReferencesToChr,
+	/*0x01e1*/ aiSetStageFlagW,
+	/*0x01e2*/ aiUnsetStageFlagW,
+	/*0x01e3*/ aiIfStageFlagWEq,
+	/*0x01e4*/ aiIfObjectivesRangeComplete,
+	/*0x01e5*/ aiCampaignJoint,
+	/*0x01e6*/ aiIfCampaignLegGe,
+	/*0x01e7*/ aiIfCampaignLegEq,
 #endif
 };
 
@@ -624,6 +632,8 @@ u16 g_CommandLengths[] = {
 #if VERSION >= VERSION_NTSC_1_0
 	/*0x01df*/ 8,
 	/*0x01e0*/ 2,
+	/*0x01e1*/ 7,  /*0x01e2*/ 7,  /*0x01e3*/ 9,  /*0x01e4*/ 5,
+	/*0x01e5*/ 3,  /*0x01e6*/ 4,  /*0x01e7*/ 4,
 #endif
 };
 

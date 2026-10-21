@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/cheats.h"
+#include "game/campaign.h"
 #include "game/game_00b820.h"
 #include "game/setup.h"
 #include "game/objectives.h"
@@ -630,7 +631,7 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 				modelmgrLoadProjectileModeldefs(weapon->weaponnum);
 				func0f08b25c(weapon, chr);
 #else
-				if (g_Vars.stagenum == STAGE_INVESTIGATION
+				if (campaignStageIs(STAGE_INVESTIGATION)
 						&& lvGetDifficulty() == DIFF_PA
 						&& weapon->weaponnum == WEAPON_K7AVENGER) {
 					modelmgrLoadProjectileModeldefs(weapon->weaponnum);
@@ -686,7 +687,7 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 						// Don't replace the K7 guard's weapon in Investigation
 						// because it would make an objective impossible.
 						// @bug: It's still replaced on PD mode difficulty.
-						if (g_Vars.stagenum != STAGE_INVESTIGATION || lvGetDifficulty() != DIFF_PA) {
+						if (!campaignStageIs(STAGE_INVESTIGATION) || lvGetDifficulty() != DIFF_PA) {
 							weapon->weaponnum = WEAPON_ROCKETLAUNCHER;
 							weapon->base.modelnum = MODEL_CHRDYROCKET;
 							weapon->base.extrascale = 256;
@@ -1322,6 +1323,7 @@ void setupLoadFiles(s32 stagenum)
 		g_GeCreditsData = (u8 *)fileLoadToNew(filenum, FILELOADMETHOD_DEFAULT, LOADTYPE_SETUP);
 		setup = (struct stagesetup *)g_GeCreditsData;
 		langLoad(langGetLangBankIndexFromStagenum(stagenum));
+		campaignLoadLangBanks(stagenum);
 
 		g_StageSetup.intro = (s32 *)((uintptr_t)setup + (uintptr_t)setup->intro);
 		g_StageSetup.props = (u32 *)((uintptr_t)setup + (uintptr_t)setup->props);
@@ -1499,7 +1501,7 @@ void setupCreateProps(s32 stagenum)
 	s32 i;
 	s32 j;
 
-	withhovercars = !(stagenum == STAGE_EXTRACTION || stagenum == STAGE_DEFECTION)
+	withhovercars = !(campaignStageIs(STAGE_EXTRACTION) || campaignStageIs(STAGE_DEFECTION))
 		|| !(g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0);
 
 	escstepx = 0;

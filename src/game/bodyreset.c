@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/body.h"
+#include "game/campaign.h"
 #include "game/cheats.h"
 #include "game/chrai.h"
 #include "game/game_00b820.h"
@@ -44,7 +45,7 @@ void bodiesReset(s32 stagenum)
 		g_NumActiveHeadsPerGender = 8;
 
 		for (i = 0; i < len; i++) {
-			if (overrides[i][0] == stagenum) {
+			if (overrides[i][0] == campaignLegStage(stagenum)) {
 				g_NumActiveHeadsPerGender = overrides[i][1];
 			}
 		}

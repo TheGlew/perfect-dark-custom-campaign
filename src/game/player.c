@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/bondeyespy.h"
+#include "game/campaign.h"
 #include "game/bondmove.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
@@ -1226,12 +1227,12 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 		return;
 	}
 
-	if (g_Vars.stagenum == STAGE_VILLA && lvGetDifficulty() >= DIFF_PA) {
+	if (campaignStageIs(STAGE_VILLA) && lvGetDifficulty() >= DIFF_PA) {
 		outfit = OUTFIT_NEGOTIATOR;
 	}
 
 	if (g_Vars.currentplayer->disguised) {
-		switch (g_Vars.stagenum) {
+		switch (campaignEffectiveStage()) {
 		case STAGE_RESCUE:  outfit = OUTFIT_LAB; break;
 		case STAGE_AIRBASE: outfit = OUTFIT_STEWARDESS; break;
 		}
@@ -1697,7 +1698,7 @@ void player0f0b9a20(void)
 	g_PlayerTriggerGeFadeIn = false;
 	bmoveSetMode(MOVEMODE_WALK);
 
-	if (mainGetStageNum() == STAGE_TEST_LEN) {
+	if (campaignStageIs(STAGE_TEST_LEN)) {
 		playerSetFadeColour(0, 0, 0, 1);
 		playerSetFadeFrac(0, 1);
 	} else if (var80070748 != 0) {
@@ -2009,6 +2010,9 @@ void playerTickCutscene(bool arg0)
 	pos.y = translate.y * translatescale;
 	pos.z = translate.z * translatescale;
 
+	// a merged mission's later world sits elsewhere than the level it came from
+	campaignLegOffset(&pos);
+
 	mtx4LoadRotation(&rot, &rotmtx);
 
 	up.x = rotmtx.m[1][0];
@@ -2274,7 +2278,7 @@ void playerTickPauseMenu(void)
 			g_Vars.currentplayer->pausemode = PAUSEMODE_PAUSED;
 
 			if ((g_GlobalMenuRoot == MENUROOT_MAINMENU || g_GlobalMenuRoot == MENUROOT_TRAINING)
-					&& g_Vars.stagenum == STAGE_CITRAINING) {
+					&& campaignStageIs(STAGE_CITRAINING)) {
 				s32 room = g_Vars.currentplayer->prop->rooms[0];
 
 				if ((room >= ROOM_DISH_HOLO1 && room <= ROOM_DISH_HOLO4)
@@ -3056,7 +3060,7 @@ s16 playerGetViewportTop(void)
 		}
 	} else {
 		if (optionsGetEffectiveScreenSize() == SCREENSIZE_WIDE) {
-			if (g_InCutscene && optionsGetCutsceneSubtitles() && g_Vars.stagenum != STAGE_CITRAINING) {
+			if (g_InCutscene && optionsGetCutsceneSubtitles() && !campaignStageIs(STAGE_CITRAINING)) {
 				if (g_CutsceneTweenDuration60 >= 1) {
 					f32 a = g_ViModes[g_ViRes].fulltop;
 					f32 b = g_ViModes[g_ViRes].widetop;
@@ -3073,7 +3077,7 @@ s16 playerGetViewportTop(void)
 			top = g_ViModes[g_ViRes].cinematop;
 		} else {
 			if (g_InCutscene && !var8009dfc0
-					&& (!optionsGetCutsceneSubtitles() || g_Vars.stagenum == STAGE_CITRAINING)) {
+					&& (!optionsGetCutsceneSubtitles() || campaignStageIs(STAGE_CITRAINING))) {
 				if (g_CutsceneTweenDuration60 >= 1) {
 					f32 a = g_ViModes[g_ViRes].widetop;
 					f32 b = g_ViModes[g_ViRes].fulltop;
@@ -3291,7 +3295,7 @@ void playerTick(bool arg0)
 		playerTickTeleport(&aspectratio);
 	}
 
-	if (g_Vars.stagenum == STAGE_TEST_OLD && func0f01ad5c()) {
+	if (campaignStageIs(STAGE_TEST_OLD) && func0f01ad5c()) {
 		func0f01adb8();
 		return;
 	}
@@ -3832,7 +3836,7 @@ void playerTick(bool arg0)
 				&& g_MissionConfig.iscoop
 				&& g_Vars.numaibuddies > 0
 				&& !g_Vars.aibuddiesspawned
-				&& g_Vars.stagenum != STAGE_CITRAINING
+				&& !campaignStageIs(STAGE_CITRAINING)
 				&& g_Vars.lvframenum > 20) {
 			g_Vars.aibuddiesspawned = true;
 
@@ -4608,7 +4612,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 			gdl = playerDrawStoredFade(gdl);
 		}
 
-		if (g_Vars.stagenum == STAGE_ESCAPE) {
+		if (campaignStageIs(STAGE_ESCAPE)) {
 			gdl = gasRender(gdl);
 		}
 
@@ -4629,7 +4633,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 			gdl = nbombRenderOverlay(gdl);
 		}
 
-		if (g_Vars.stagenum == STAGE_ESCAPE) {
+		if (campaignStageIs(STAGE_ESCAPE)) {
 			gdl = gasRender(gdl);
 		}
 
@@ -4776,7 +4780,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 								// the player could respawn on the other side of the exit trigger.
 								// Additionally, the logic for coopcanrestart is different.
 								if (totalhealth > 0.125f
-										&& !(mainGetStageNum() == STAGE_DEEPSEA && chrHasStageFlag(NULL, 0x00000200))) {
+										&& !(campaignStageIs(STAGE_DEEPSEA) && chrHasStageFlag(NULL, 0x00000200))) {
 									if (canrestart) {
 										playerDisplayHealth();
 

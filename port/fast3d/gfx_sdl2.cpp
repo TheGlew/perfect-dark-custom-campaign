@@ -1,7 +1,13 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <SDL.h>
 #include <unistd.h>
 #include <time.h>
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#endif
 
 #include "platform.h"
 #include "system.h"
@@ -205,7 +211,13 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     SDL_GL_MakeCurrent(wnd, ctx);
     SDL_GL_SetSwapInterval(1);
 
-    SDL_ShowWindow(wnd);
+    // PD_HIDDEN=1 keeps the window hidden: the game renders and can dump frames
+    // (PD_PCDUMP) without taking the desktop. A development switch.
+    if (!getenv("PD_HIDDEN")) {
+        SDL_ShowWindow(wnd);
+    } else {
+        sysLogPrintf(LOG_NOTE, "SDL: window kept hidden (PD_HIDDEN)");
+    }
 
     qpc_freq = SDL_GetPerformanceFrequency();
 }
@@ -353,10 +365,62 @@ static inline void sync_framerate_with_timer(void) {
     previous_time = t;
 }
 
+extern "C" bool gfx_opengl_dump_backbuffer(uint32_t width, uint32_t height, const char *path);
+
+/**
+ * PD_PCDUMP="first-last[:step]" writes the back buffer of those frames as
+ * pcdump/frame_NNNNNN.png, read before the swap (after it the buffer is
+ * undefined on some drivers). A development switch for seeing what the game
+ * draws without a window on the desktop.
+ */
+static void gfx_sdl_frame_dump(void) {
+    static int state = -1; // -1 unparsed, 0 off, 1 on
+    static int lo = 1, hi = 0x7fffffff, step = 1;
+    static uint32_t frame = 0;
+
+    if (state < 0) {
+        const char *spec = getenv("PD_PCDUMP");
+        state = 0;
+        if (spec && *spec) {
+            state = 1;
+            if (sscanf(spec, "%d-%d:%d", &lo, &hi, &step) < 2) {
+                hi = 0x7fffffff;
+                sscanf(spec, "%d", &lo);
+            }
+            if (step < 1) {
+                step = 1;
+            }
+#ifdef _WIN32
+            mkdir("pcdump");
+#else
+            mkdir("pcdump", 0755);
+#endif
+        }
+    }
+
+    frame++;
+
+    if (frame == 1 || frame % 1000 == 0) {
+        sysLogPrintf(LOG_NOTE, "frame %u presented (dump %s)", frame, state == 1 ? "on" : "off");
+    }
+
+    if (state == 1 && (int)frame >= lo && (int)frame <= hi && ((int)frame - lo) % step == 0) {
+        char path[128];
+        int w = 0;
+        int h = 0;
+        SDL_GL_GetDrawableSize(wnd, &w, &h);
+        snprintf(path, sizeof(path), "pcdump/frame_%06u.png", frame);
+        if (gfx_opengl_dump_backbuffer((uint32_t)w, (uint32_t)h, path)) {
+            sysLogPrintf(LOG_NOTE, "frame dump: wrote %s (%dx%d)", path, w, h);
+        }
+    }
+}
+
 static void gfx_sdl_swap_buffers_begin(void) {
     if (target_fps) {
         sync_framerate_with_timer();
     }
+    gfx_sdl_frame_dump();
     SDL_GL_SwapWindow(wnd);
 }
 

@@ -392,7 +392,7 @@ void lvReset(s32 stagenum)
 	weatherReset();
 	lvResetMiscSfx();
 
-	switch (g_Vars.stagenum) {
+	switch (campaignEffectiveStage()) {
 	case STAGE_ESCAPE:
 	case STAGE_EXTRACTION:
 	case STAGE_INFILTRATION:
@@ -410,7 +410,7 @@ void lvReset(s32 stagenum)
 	shardsReset();
 	frReset();
 
-	if (g_Vars.stagenum == STAGE_TITLE) {
+	if (campaignStageIs(STAGE_TITLE)) {
 		// empty
 	} else if (stagenum == STAGE_BOOTPAKMENU) {
 		setCurrentPlayerNum(0);
@@ -533,7 +533,7 @@ Gfx *lvRenderFade(Gfx *gdl)
 	u32 colour = g_FadeColour;
 	u32 inset = 0;
 
-	if (g_Vars.stagenum == STAGE_TEST_OLD) {
+	if (campaignStageIs(STAGE_TEST_OLD)) {
 		inset = 61;
 	}
 
@@ -1046,8 +1046,8 @@ Gfx *lvRender(Gfx *gdl)
 	func0f0d5a7c();
 #endif
 
-	if (g_Vars.stagenum == STAGE_TITLE
-			|| (g_Vars.stagenum == STAGE_TEST_OLD && titleIsKeepingMode())) {
+	if (campaignStageIs(STAGE_TITLE)
+			|| (campaignStageIs(STAGE_TEST_OLD) && titleIsKeepingMode())) {
 		gSPDisplayList(gdl++, &var800613a0);
 
 		if (debugIsZBufferDisabled()) {
@@ -1066,7 +1066,7 @@ Gfx *lvRender(Gfx *gdl)
 
 		gdl = titleRender(gdl);
 		gdl = lvRenderFade(gdl);
-	} else if (g_Vars.stagenum == STAGE_BOOTPAKMENU) {
+	} else if (campaignStageIs(STAGE_BOOTPAKMENU)) {
 		gSPClipRatio(gdl++, FRUSTRATIO_2);
 		gSPDisplayList(gdl++, &var800613a0);
 		gSPDisplayList(gdl++, &var80061380);
@@ -1081,7 +1081,7 @@ Gfx *lvRender(Gfx *gdl)
 		gdl = viRenderViewportEdges(gdl);
 		gdl = bgScissorToViewport(gdl);
 		gdl = menuRender(gdl);
-	} else if (g_Vars.stagenum == STAGE_4MBMENU) {
+	} else if (campaignStageIs(STAGE_4MBMENU)) {
 		gSPClipRatio(gdl++, FRUSTRATIO_2);
 		gSPDisplayList(gdl++, &var800613a0);
 		gSPDisplayList(gdl++, &var80061380);
@@ -1110,7 +1110,7 @@ Gfx *lvRender(Gfx *gdl)
 		if (g_Vars.currentplayer->pausemode != PAUSEMODE_UNPAUSED) {
 			playerTickPauseMenu();
 		}
-	} else if (g_Vars.stagenum == STAGE_CREDITS) {
+	} else if (campaignStageIs(STAGE_CREDITS)) {
 		gSPClipRatio(gdl++, FRUSTRATIO_2);
 		gSPDisplayList(gdl++, &var800613a0);
 		gSPDisplayList(gdl++, &var80061380);
@@ -1215,7 +1215,7 @@ Gfx *lvRender(Gfx *gdl)
 			gdl = bgScissorToViewport(gdl);
 			artifactsClear();
 
-			if ((g_Vars.stagenum != STAGE_CITRAINING || (var80087260 <= 0 && g_MenuData.root != MENUROOT_MPSETUP))
+			if ((!campaignStageIs(STAGE_CITRAINING) || (var80087260 <= 0 && g_MenuData.root != MENUROOT_MPSETUP))
 					&& g_Vars.lvframenum <= 5
 					&& !g_Vars.normmplayerisrunning
 					&& g_Vars.tickmode != TICKMODE_CUTSCENE) {
@@ -1284,7 +1284,7 @@ Gfx *lvRender(Gfx *gdl)
 							struct defaultobj *obj = g_Vars.currentplayer->lookingatprop.prop->obj;
 
 							if ((obj->flags3 & OBJFLAG3_REACTTOSIGHT) == 0) {
-								if (g_Vars.stagenum != STAGE_CITRAINING
+								if (!campaignStageIs(STAGE_CITRAINING)
 										|| (obj->modelnum != MODEL_TARGET
 											&& obj->modelnum != MODEL_CIHUB
 											&& obj->modelnum != MODEL_COMHUB)) {
@@ -1420,7 +1420,7 @@ Gfx *lvRender(Gfx *gdl)
 						// This chunk of code is unreachable
 						// (STAGE_TEST_OLD is not used)
 #if VERSION < VERSION_PAL_BETA
-						if (g_Vars.stagenum == STAGE_TEST_OLD) {
+						if (campaignStageIs(STAGE_TEST_OLD)) {
 							f32 frac = 0;
 							u32 colour;
 							s32 endframe = animGetNumFrames(g_CutsceneAnimNum) - 1;
@@ -2104,10 +2104,10 @@ void lvTick(void)
 		}
 #endif
 
-		if (g_Vars.stagenum == STAGE_TITLE
-				|| g_Vars.stagenum == STAGE_BOOTPAKMENU
-				|| g_Vars.stagenum == STAGE_CREDITS
-				|| g_Vars.stagenum == STAGE_4MBMENU) {
+		if (campaignStageIs(STAGE_TITLE)
+				|| campaignStageIs(STAGE_BOOTPAKMENU)
+				|| campaignStageIs(STAGE_CREDITS)
+				|| campaignStageIs(STAGE_4MBMENU)) {
 			g_Vars.paksneededforgame = 0;
 		} else {
 			g_Vars.paksneededforgame = 0x1f;
@@ -2241,7 +2241,7 @@ void lvTick(void)
 				|| joyGetStickX(3) < -10
 				|| joyGetStickY(3) > 10
 				|| joyGetStickY(3) < -10) && g_IsTitleDemo) {
-		if (g_Vars.stagenum != STAGE_TITLE) {
+		if (!campaignStageIs(STAGE_TITLE)) {
 			titleSetNextMode(TITLEMODE_SKIP);
 			mainChangeToStage(STAGE_TITLE);
 		}
@@ -2363,16 +2363,16 @@ void lvTick(void)
 
 	viSetUseZBuf(true);
 
-	if (g_Vars.stagenum == STAGE_TEST_OLD) {
+	if (campaignStageIs(STAGE_TEST_OLD)) {
 		titleTickOld();
 		musicTick();
 	}
 
-	if (g_Vars.stagenum == STAGE_TITLE) {
+	if (campaignStageIs(STAGE_TITLE)) {
 		titleTick();
 		langTick();
 		musicTick();
-	} else if (g_Vars.stagenum == STAGE_BOOTPAKMENU) {
+	} else if (campaignStageIs(STAGE_BOOTPAKMENU)) {
 		setCurrentPlayerNum(0);
 #if VERSION >= VERSION_PAL_BETA
 		playerConfigureVi();
@@ -2381,12 +2381,12 @@ void lvTick(void)
 		musicTick();
 		langTick();
 		pakExecuteDebugOperations();
-	} else if (g_Vars.stagenum == STAGE_4MBMENU) {
+	} else if (campaignStageIs(STAGE_4MBMENU)) {
 		menuTick();
 		musicTick();
 		langTick();
 		pakExecuteDebugOperations();
-	} else if (g_Vars.stagenum == STAGE_CREDITS) {
+	} else if (campaignStageIs(STAGE_CREDITS)) {
 		musicTick();
 		langTick();
 	} else {
@@ -2427,7 +2427,7 @@ void lvTick(void)
 		langTick();
 		propsTickPadEffects();
 
-		if (mainGetStageNum() == STAGE_CITRAINING) {
+		if (campaignStageIs(STAGE_CITRAINING)) {
 			struct trainingdata *trainingdata = dtGetData();
 
 			if ((g_Vars.currentplayer->prop->rooms[0] < ROOM_DISH_HOLO1 || g_Vars.currentplayer->prop->rooms[0] > ROOM_DISH_HOLO4)

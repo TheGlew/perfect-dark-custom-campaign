@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/dlights.h"
+#include "game/campaign.h"
 #include "game/tex.h"
 #include "game/camera.h"
 #include "game/gfxmemory.h"

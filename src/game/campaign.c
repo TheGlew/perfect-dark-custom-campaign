@@ -13,6 +13,8 @@
  */
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <math.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "bss.h"
@@ -27,7 +29,12 @@
 #include "game/inv.h"
 #include "game/lv.h"
 #include "game/objectives.h"
+#include "game/pad.h"
 #include "game/pdmode.h"
+#include "game/chrai.h"
+#include "game/env.h"
+#include "game/music.h"
+#include "game/lang.h"
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "game/playerreset.h"
@@ -61,6 +68,11 @@ struct campaignloadout {
 	f32 shield;
 };
 
+static void campaignMergedReset(void);
+static void campaignTickMerged(struct player *player);
+static struct campaignloadout s_JointStart;
+static s32 s_CheckpointLeg = 0;                 // where the next reset of this stage begins
+static bool s_CheckpointPending = false;        // the checkpoint applies to the next reset (a retry, or a leg chosen from the menu)
 static struct campaignloadout s_Carry;      // what the next stage starts with
 static struct campaignloadout s_StageStart; // what the current stage started with (for retry)
 static bool s_RestorePending = false;       // s_Carry applies to the next stage start
@@ -139,6 +151,8 @@ static bool campaignIsSolo(void)
 static s32 campaignSoloIndex(s32 stagenum)
 {
 	s32 i;
+
+	stagenum = campaignFirstLegStage(stagenum);
 
 	for (i = 0; i <= CAMPAIGN_LAST_STAGEINDEX; i++) {
 		if ((s32)g_SoloStages[i].stagenum == stagenum) {
@@ -351,7 +365,10 @@ void campaignBootInit(s32 *stagenum)
 	}
 
 	if (g_CampaignContinuous) {
-		s32 idx = campaignSoloIndex(*stagenum);
+		s32 idx;
+
+		*stagenum = campaignRedirectStage(*stagenum);
+		idx = campaignSoloIndex(*stagenum);
 
 		if (idx >= 0) {
 			g_MissionConfig.stageindex = idx;
@@ -401,7 +418,22 @@ bool campaignHandleStageEnd(void)
 	if (completed) {
 		campaignSnapshot(&s_Carry);
 		campaignLogLoadout("carrying forward", &s_Carry);
-		campaignRecordCompletion(idx);
+
+		if (campaignIsMergedStage(g_Vars.stagenum)) {
+			// every leg of the merged mission is complete
+			s32 last = campaignSoloIndex(campaignEffectiveStage());
+			s32 k;
+
+			for (k = idx; k <= last && k >= 0; k++) {
+				campaignRecordCompletion(k);
+			}
+
+			idx = last;
+		} else {
+			campaignRecordCompletion(idx);
+		}
+
+		s_CheckpointPending = false;
 
 		if (idx >= CAMPAIGN_LAST_STAGEINDEX) {
 			sysLogPrintf(LOG_NOTE, "campaign: stage 0x%02x (solo %d) complete -> credits; campaign complete", g_Vars.stagenum, idx);
@@ -427,9 +459,19 @@ bool campaignHandleStageEnd(void)
 	}
 
 	// Death, or the exit taken with an objective failed: straight back in,
-	// with what the stage started with.
-	s_Carry = s_StageStart;
-	s_RestorePending = s_StageStart.valid;
+	// with what the stage started with; in a merged mission, at the current
+	// leg's joint with what was held there.
+	if (campaignIsMergedStage(g_Vars.stagenum) && g_CampaignLeg > 0) {
+		s_Carry = s_JointStart;
+		s_RestorePending = s_JointStart.valid;
+		s_CheckpointLeg = g_CampaignLeg;
+		s_CheckpointPending = true;
+	} else {
+		s_Carry = s_StageStart;
+		s_RestorePending = s_StageStart.valid;
+		s_CheckpointPending = false;
+	}
+
 	g_Vars.restartlevel = true;
 
 	sysLogPrintf(LOG_NOTE, "campaign: stage 0x%02x (solo %d) %s -> retry", g_Vars.stagenum, idx,
@@ -463,6 +505,8 @@ void campaignOnPlayerReset(void)
 		return;
 	}
 
+	campaignMergedReset();
+
 	if (s_RestorePending && s_Carry.valid) {
 		campaignRestore(&s_Carry);
 		campaignLogLoadout("restored", &s_Carry);
@@ -478,6 +522,86 @@ void campaignOnPlayerReset(void)
 }
 
 /**
+ * Move the player to a pad: position, room and facing, through the same path
+ * the AI's chr_move_to_pad takes. The joints between a merged mission's legs
+ * use this; so does the PD_TESTWARP development switch.
+ */
+bool campaignWarpPlayerToPad(s32 padnum)
+{
+	struct player *player = g_Vars.bond ? g_Vars.bond : g_Vars.currentplayer;
+	struct pad pad;
+	RoomNum rooms[2];
+	f32 theta;
+	bool ok;
+
+	if (player == NULL || player->prop == NULL || player->prop->chr == NULL) {
+		return false;
+	}
+
+	padUnpack(padnum, PADFIELD_POS | PADFIELD_LOOK | PADFIELD_ROOM, &pad);
+	rooms[0] = pad.room;
+	rooms[1] = -1;
+	theta = atan2f(pad.look.x, pad.look.z);
+	ok = chrMoveToPos(player->prop->chr, &pad.pos, rooms, theta, true);
+
+	sysLogPrintf(LOG_NOTE, "campaign: warp to pad %d (%.0f, %.0f, %.0f) room %d: %s; player now in room %d",
+			padnum, pad.pos.x, pad.pos.y, pad.pos.z, pad.room, ok ? "ok" : "FAILED", player->prop->rooms[0]);
+
+	return ok;
+}
+
+/**
+ * PD_TESTWARP="<seconds>:<pad>" warps the player that many seconds into the
+ * stage. A development switch for checking geometry a level never reaches.
+ */
+static void campaignTickTestWarp(s32 elapsed)
+{
+	static s32 secs = -2; // -2 unparsed, -1 off
+	static s32 pad = -1;
+	static bool fired = false;
+
+	if (secs == -2) {
+		const char *spec = getenv("PD_TESTWARP");
+		secs = -1;
+
+		if (spec && sscanf(spec, "%d:%d", &secs, &pad) != 2) {
+			secs = -1;
+		}
+	}
+
+	if (secs >= 0 && !fired && elapsed >= secs * 60) {
+		fired = true;
+		campaignWarpPlayerToPad(pad);
+	}
+}
+
+/**
+ * PD_TESTRESTART="<seconds>" restarts the mission that many seconds in, the
+ * way the pause menu's Restart Mission does (mainmenu.c menuhandlerAcceptMission).
+ */
+static void campaignTickTestRestart(s32 elapsed)
+{
+	static s32 secs = -2;
+	static bool fired = false;
+
+	if (secs == -2) {
+		const char *spec = getenv("PD_TESTRESTART");
+		secs = -1;
+
+		if (spec && sscanf(spec, "%d", &secs) != 1) {
+			secs = -1;
+		}
+	}
+
+	if (secs >= 0 && !fired && elapsed >= secs * 60) {
+		fired = true;
+		sysLogPrintf(LOG_NOTE, "campaign: test: restart mission after %d seconds", secs);
+		g_Vars.restartlevel = true;
+		mainChangeToStage(mainGetStageNum());
+	}
+}
+
+/**
  * Called every frame from lvTick.
  */
 void campaignTick(void)
@@ -485,7 +609,7 @@ void campaignTick(void)
 	struct player *player;
 	s32 elapsed;
 
-	if (!g_CampaignContinuous || !campaignIsSolo() || campaignSoloIndex(g_Vars.stagenum) < 0) {
+	if (!campaignIsSolo() || campaignSoloIndex(g_Vars.stagenum) < 0) {
 		return;
 	}
 
@@ -493,6 +617,25 @@ void campaignTick(void)
 
 	if (player == NULL) {
 		return;
+	}
+
+	if (!g_CampaignContinuous) {
+		// the stock game; only the soak's forced completion applies, so a stock
+		// level can be seen ending through its own end screen
+		if (g_CampaignDebugAutoComplete > 0 && !s_DebugCompleteFired && !g_MainIsEndscreen && !player->isdead
+				&& lvGetStageTime60() >= g_CampaignDebugAutoComplete * 60) {
+			s_DebugCompleteFired = true;
+			sysLogPrintf(LOG_NOTE, "campaign: debug: forcing stock stage 0x%02x complete after %d seconds", g_Vars.stagenum, g_CampaignDebugAutoComplete);
+			func0000e990();
+		}
+
+		return;
+	}
+
+	if (!g_MainIsEndscreen && !player->isdead) {
+		campaignTickTestWarp(lvGetStageTime60());
+		campaignTickTestRestart(lvGetStageTime60());
+		campaignTickMerged(player);
 	}
 
 	if (s_ShieldPending && player->prop && player->prop->chr) {
@@ -533,4 +676,492 @@ void campaignTick(void)
 		func0000e990();
 	}
 }
+
+/*
+ * ---------------------------------------------------------------------------
+ * Merged missions
+ * ---------------------------------------------------------------------------
+ */
+
+s32 g_CampaignLeg = 0;
+s32 g_CampaignDebugAutoJoint = 0;
+
+#define CAMPAIGN_MAX_LEGS 4
+
+struct campaignmission {
+	s32 stagenum;
+	s32 numlegs;
+	const struct campaignleg *legs;
+};
+
+#include "merged/legs_a51.inc.c"
+#include "merged/legs_dd.inc.c"
+#include "merged/legs_chi.inc.c"
+
+static const struct campaignmission g_CampaignMissions[] = {
+	{ STAGE_MERGED_DD,  ARRAYCOUNT(g_CampaignLegs_dd),  g_CampaignLegs_dd  },
+	{ STAGE_MERGED_CHI, ARRAYCOUNT(g_CampaignLegs_chi), g_CampaignLegs_chi },
+	{ STAGE_MERGED_A51, ARRAYCOUNT(g_CampaignLegs_a51), g_CampaignLegs_a51 },
+};
+
+static u32 s_LegFlagWords[CAMPAIGN_MAX_LEGS];   // each leg's stage flags; the current leg's live in g_StageFlags
+static u32 s_ForcedObjectives = 0;              // bit per objective: complete for good (a finished leg's)
+static s32 s_PendingWarpPad = -1;               // a joint's teleport, waiting for the white screen
+static s32 s_LegStartTime60 = 0;
+static s32 s_ResumeLeg = 0;                     // joints to run on the first tick after a reset
+
+static const struct campaignmission *campaignMissionForStage(s32 stagenum)
+{
+	s32 i;
+
+	for (i = 0; i < ARRAYCOUNT(g_CampaignMissions); i++) {
+		if (g_CampaignMissions[i].stagenum == stagenum) {
+			return &g_CampaignMissions[i];
+		}
+	}
+
+	return NULL;
+}
+
+static const struct campaignmission *campaignCurrentMission(void)
+{
+	return campaignMissionForStage(g_Vars.stagenum);
+}
+
+bool campaignIsMergedStage(s32 stagenum)
+{
+	return campaignMissionForStage(stagenum) != NULL;
+}
+
+/**
+ * The level the game should behave as: the current leg's, in a merged mission.
+ */
+s32 campaignEffectiveStage(void)
+{
+	const struct campaignmission *mission = campaignCurrentMission();
+
+	if (mission && g_CampaignLeg >= 0 && g_CampaignLeg < mission->numlegs) {
+		return mission->legs[g_CampaignLeg].stagenum;
+	}
+
+	return g_Vars.stagenum;
+}
+
+bool campaignStageIs(s32 stagenum)
+{
+	return g_Vars.stagenum == stagenum || campaignEffectiveStage() == stagenum;
+}
+
+/**
+ * An object tag the engine names by number for a level (the EyeSpy's, say) is
+ * that number plus the leg's tag base in a merged mission.
+ */
+s32 campaignLegTag(s32 tagnum)
+{
+	const struct campaignmission *mission = campaignCurrentMission();
+
+	if (mission && g_CampaignLeg >= 0 && g_CampaignLeg < mission->numlegs) {
+		return tagnum + mission->legs[g_CampaignLeg].tagbase;
+	}
+
+	return tagnum;
+}
+
+/**
+ * Move a position authored in the current leg's level (a cutscene camera's)
+ * to where that level's world sits in the merged one.
+ */
+void campaignLegOffset(struct coord *pos)
+{
+	const struct campaignmission *mission = campaignCurrentMission();
+
+	if (mission && g_CampaignLeg >= 0 && g_CampaignLeg < mission->numlegs) {
+		const struct campaignleg *leg = &mission->legs[g_CampaignLeg];
+		pos->x += leg->offset[0];
+		pos->y += leg->offset[1];
+		pos->z += leg->offset[2];
+	}
+}
+
+/**
+ * For a merged stage, the current leg's level; anything else unchanged. For
+ * per-level tables (music, environment, weather, bodies).
+ */
+s32 campaignLegStage(s32 stagenum)
+{
+	if (stagenum == g_Vars.stagenum && campaignIsMergedStage(stagenum)) {
+		return campaignEffectiveStage();
+	}
+
+	return stagenum;
+}
+
+/**
+ * For a merged stage, its first leg's level; anything else unchanged. For what
+ * is decided once per stage load (the language bank, the memory layout).
+ */
+s32 campaignFirstLegStage(s32 stagenum)
+{
+	const struct campaignmission *mission = campaignMissionForStage(stagenum);
+
+	return mission ? mission->legs[0].stagenum : stagenum;
+}
+
+/**
+ * A level that is a leg of a merged mission is played as that mission, from
+ * that leg: the campaign's own chain, --boot-stage and the mission select all
+ * come through here (mainChangeToStage). Returns the stage to load.
+ */
+s32 campaignRedirectStage(s32 stagenum)
+{
+	s32 i;
+	s32 j;
+
+	if (!g_CampaignContinuous) {
+		return stagenum;
+	}
+
+	// g_Vars is not set up at boot (varsInit runs later); the co-op and
+	// counter-op fields are -1 once it is, and 0 before, so test for players
+	// actually running
+	if (g_Vars.normmplayerisrunning || g_Vars.mplayerisrunning
+			|| (g_Vars.coopplayernum > 0) || (g_Vars.antiplayernum > 0)) {
+		return stagenum;
+	}
+
+	for (i = 0; i < ARRAYCOUNT(g_CampaignMissions); i++) {
+		for (j = 0; j < g_CampaignMissions[i].numlegs; j++) {
+			if (g_CampaignMissions[i].legs[j].stagenum == stagenum) {
+				if (!s_CheckpointPending) {
+					s_CheckpointLeg = j;
+					s_CheckpointPending = true;
+				}
+
+				sysLogPrintf(LOG_NOTE, "campaign: stage 0x%02x is leg %d of merged stage 0x%02x; loading that from leg %d",
+						stagenum, j, g_CampaignMissions[i].stagenum, s_CheckpointLeg);
+				return g_CampaignMissions[i].stagenum;
+			}
+		}
+	}
+
+	return stagenum;
+}
+
+/**
+ * A merged stage's objectives are every leg's; the ones of a finished leg stay
+ * complete whatever the world says, and each leg's flag requirements read that
+ * leg's flag word.
+ */
+static const struct campaignleg *campaignLegForObjective(s32 index, s32 *legnum)
+{
+	const struct campaignmission *mission = campaignCurrentMission();
+	s32 i;
+
+	if (mission) {
+		for (i = 0; i < mission->numlegs; i++) {
+			if (index >= mission->legs[i].objfirst && index < mission->legs[i].objfirst + mission->legs[i].objcount) {
+				*legnum = i;
+				return &mission->legs[i];
+			}
+		}
+	}
+
+	return NULL;
+}
+
+static u32 campaignFlagWord(s32 leg)
+{
+	if (leg == g_CampaignLeg) {
+		return g_StageFlags;
+	}
+
+	if (leg >= 0 && leg < CAMPAIGN_MAX_LEGS) {
+		return s_LegFlagWords[leg];
+	}
+
+	return 0;
+}
+
+static void campaignSetFlagWord(s32 leg, u32 value)
+{
+	if (leg == g_CampaignLeg) {
+		g_StageFlags = value;
+	} else if (leg >= 0 && leg < CAMPAIGN_MAX_LEGS) {
+		s_LegFlagWords[leg] = value;
+	}
+}
+
+u32 campaignObjectiveFlags(s32 index)
+{
+	s32 legnum;
+
+	if (campaignLegForObjective(index, &legnum)) {
+		return campaignFlagWord(legnum);
+	}
+
+	return g_StageFlags;
+}
+
+bool campaignObjectiveForced(s32 index)
+{
+	return index >= 0 && index < 32 && (s_ForcedObjectives & (1u << index)) != 0;
+}
+
+/**
+ * Hand over to a leg: the finished legs' objectives stay complete, the leg's
+ * flag word comes in, the player gets the leg's own kit, the level's own music
+ * and sky apply, and the player stands at the leg's start. With fade, the
+ * teleport happens behind the game's white teleport screen.
+ */
+void campaignJoint(s32 leg, bool fade)
+{
+	const struct campaignmission *mission = campaignCurrentMission();
+	const struct campaignleg *to;
+	struct player *player = g_Vars.bond ? g_Vars.bond : g_Vars.currentplayer;
+	s32 i;
+	s32 j;
+
+	if (mission == NULL || leg <= g_CampaignLeg || leg >= mission->numlegs) {
+		sysLogPrintf(LOG_NOTE, "campaign: joint to leg %d ignored (current leg %d)", leg, g_CampaignLeg);
+		return;
+	}
+
+	to = &mission->legs[leg];
+
+	// objectives of the legs behind us are done for good
+	for (i = 0; i < leg; i++) {
+		for (j = 0; j < mission->legs[i].objcount; j++) {
+			s_ForcedObjectives |= 1u << (mission->legs[i].objfirst + j);
+		}
+	}
+
+	// park the finished leg's flags, bring in the new leg's
+	s_LegFlagWords[g_CampaignLeg] = g_StageFlags;
+	g_StageFlags = s_LegFlagWords[leg];
+	g_CampaignLeg = leg;
+	s_LegStartTime60 = lvGetStageTime60();
+
+	// the leg's kit, on top of what is carried
+	for (i = 0; i < to->numweapons; i++) {
+		campaignGiveWeapon(to->weapons[i], -1);
+	}
+
+	for (i = 0; i < to->numammo; i++) {
+		if (to->ammo[i].qty > bgunGetAmmoCount(to->ammo[i].type)) {
+			bgunSetAmmoQuantity(to->ammo[i].type, to->ammo[i].qty);
+		}
+	}
+
+	// the level's own sky and music
+	envChooseAndApply(to->stagenum, true);
+	musicSetStageAndStartMusic(to->stagenum);
+
+	if (fade && player && player->prop) {
+		s_PendingWarpPad = to->spawnpad;
+		player->teleportstate = TELEPORTSTATE_PREENTER;
+		player->teleporttime = 0;
+		player->teleportpad = to->spawnpad;
+		player->teleportcamerapad = to->spawnpad;
+	} else {
+		campaignWarpPlayerToPad(to->spawnpad);
+	}
+
+	objectivesCheckAll();
+	campaignSnapshot(&s_JointStart);
+	campaignLogLoadout("leg start", &s_JointStart);
+
+	sysLogPrintf(LOG_NOTE, "campaign: joint -> leg %d (stage 0x%02x) of merged stage 0x%02x, objectives %d-%d, spawn pad %d, %s",
+			leg, to->stagenum, g_Vars.stagenum, to->objfirst, to->objfirst + to->objcount - 1, to->spawnpad,
+			fade ? "fading" : "placed");
+}
+
+/**
+ * Called from setupLoadFiles after the stage's own language bank: a merged
+ * mission's text comes from every leg's bank.
+ */
+void campaignLoadLangBanks(s32 stagenum)
+{
+	const struct campaignmission *mission = campaignMissionForStage(stagenum);
+	s32 i;
+
+	if (mission) {
+		for (i = 1; i < mission->numlegs; i++) {
+			langLoad(langGetLangBankIndexFromStagenum(mission->legs[i].stagenum));
+		}
+	}
+}
+
+/**
+ * At a stage reset: back to leg 0 with nothing forced, then up to the
+ * checkpoint when one is pending (a retry after death, or a leg chosen from
+ * the menu or --boot-stage).
+ */
+static void campaignMergedReset(void)
+{
+	const struct campaignmission *mission = campaignCurrentMission();
+	s32 i;
+
+	g_CampaignLeg = 0;
+	s_ForcedObjectives = 0;
+	s_PendingWarpPad = -1;
+	s_LegStartTime60 = 0;
+
+	for (i = 0; i < CAMPAIGN_MAX_LEGS; i++) {
+		s_LegFlagWords[i] = 0;
+	}
+
+	if (mission == NULL) {
+		s_CheckpointPending = false;
+		return;
+	}
+
+	// The checkpoint's joints run on the first tick (campaignTickMerged): the
+	// player's chr does not exist yet at reset time, and a joint moves it.
+	if (s_CheckpointPending && s_CheckpointLeg > 0 && s_CheckpointLeg < mission->numlegs) {
+		sysLogPrintf(LOG_NOTE, "campaign: merged stage 0x%02x resumes at leg %d", g_Vars.stagenum, s_CheckpointLeg);
+		s_ResumeLeg = s_CheckpointLeg;
+	} else {
+		s_ResumeLeg = 0;
+	}
+
+	s_CheckpointPending = false;
+	campaignSnapshot(&s_JointStart);
+}
+
+static void campaignTickMerged(struct player *player)
+{
+	const struct campaignmission *mission = campaignCurrentMission();
+
+	if (mission == NULL) {
+		return;
+	}
+
+	if (s_ResumeLeg > 0 && player->prop && player->prop->chr && player->prop->chr->model && player->haschrbody) {
+		s32 i;
+
+		for (i = 1; i <= s_ResumeLeg; i++) {
+			campaignJoint(i, false);
+		}
+
+		s_ResumeLeg = 0;
+
+		// the kit held at the joint, over what the resumed legs handed out
+		if (s_Carry.valid) {
+			campaignRestore(&s_Carry);
+			campaignLogLoadout("restored at the joint", &s_Carry);
+		}
+
+		campaignSnapshot(&s_JointStart);
+	}
+
+	if (s_PendingWarpPad >= 0 && player->teleportstate == TELEPORTSTATE_WHITE) {
+		campaignWarpPlayerToPad(s_PendingWarpPad);
+		s_PendingWarpPad = -1;
+		player->teleportstate = TELEPORTSTATE_EXITING;
+		player->teleporttime = 0;
+	}
+
+	if (g_CampaignDebugAutoJoint > 0 && s_PendingWarpPad < 0 && g_CampaignLeg + 1 < mission->numlegs
+			&& lvGetStageTime60() - s_LegStartTime60 >= g_CampaignDebugAutoJoint * 60) {
+		sysLogPrintf(LOG_NOTE, "campaign: debug: forcing the joint to leg %d after %d seconds", g_CampaignLeg + 1, g_CampaignDebugAutoJoint);
+		campaignJoint(g_CampaignLeg + 1, true);
+	}
+}
+
+/*
+ * The AI commands. Bytecode: two opcode bytes, then the operands listed in
+ * commands.h.
+ */
+
+static u32 campaignReadWord(u8 *cmd)
+{
+	return (cmd[0] << 24) | (cmd[1] << 16) | (cmd[2] << 8) | cmd[3];
+}
+
+bool aiSetStageFlagW(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	campaignSetFlagWord(cmd[2], campaignFlagWord(cmd[2]) | campaignReadWord(cmd + 3));
+	g_Vars.aioffset += 7;
+	return false;
+}
+
+bool aiUnsetStageFlagW(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	campaignSetFlagWord(cmd[2], campaignFlagWord(cmd[2]) & ~campaignReadWord(cmd + 3));
+	g_Vars.aioffset += 7;
+	return false;
+}
+
+bool aiIfStageFlagWEq(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	bool has = (campaignFlagWord(cmd[2]) & campaignReadWord(cmd + 3)) != 0;
+
+	if ((has && cmd[7] == 1) || (!has && cmd[7] == 0)) {
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[8]);
+	} else {
+		g_Vars.aioffset += 9;
+	}
+
+	return false;
+}
+
+bool aiIfObjectivesRangeComplete(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	s32 i;
+	bool all = true;
+
+	for (i = cmd[2]; i <= cmd[3]; i++) {
+		if ((objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty())) && objectiveCheck(i) != OBJECTIVE_COMPLETE) {
+			all = false;
+			break;
+		}
+	}
+
+	if (all) {
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[4]);
+	} else {
+		g_Vars.aioffset += 5;
+	}
+
+	return false;
+}
+
+bool aiCampaignJoint(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+	campaignJoint(cmd[2], true);
+	g_Vars.aioffset += 3;
+	return false;
+}
+
+bool aiIfCampaignLegGe(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (g_CampaignLeg >= cmd[2]) {
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+	} else {
+		g_Vars.aioffset += 4;
+	}
+
+	return false;
+}
+
+bool aiIfCampaignLegEq(void)
+{
+	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
+
+	if (g_CampaignLeg == cmd[2]) {
+		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[3]);
+	} else {
+		g_Vars.aioffset += 4;
+	}
+
+	return false;
+}
+
 #endif

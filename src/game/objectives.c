@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/chraction.h"
+#include "game/campaign.h"
 #include "game/debug.h"
 #include "game/prop.h"
 #include "game/setuputils.h"
@@ -174,7 +175,7 @@ s32 objectiveGetCount(void)
 
 char *objectiveGetText(s32 index)
 {
-	if (index < 10 && g_Objectives[index]) {
+	if (index < ARRAYCOUNT(g_Objectives) && g_Objectives[index]) {
 		return langGet(g_Objectives[index]->text);
 	}
 
@@ -183,7 +184,7 @@ char *objectiveGetText(s32 index)
 
 u32 objectiveGetDifficultyBits(s32 index)
 {
-	if (index < 10 && g_Objectives[index]) {
+	if (index < ARRAYCOUNT(g_Objectives) && g_Objectives[index]) {
 		return g_Objectives[index]->difficulties;
 	}
 
@@ -203,7 +204,10 @@ s32 objectiveCheck(s32 index)
 	s32 objstatus = OBJECTIVE_COMPLETE;
 
 	if (index < ARRAYCOUNT(g_Objectives)) {
-		if (g_Objectives[index] == NULL) {
+		if (campaignObjectiveForced(index)) {
+			// a finished leg of a merged mission: complete whatever the world says
+			objstatus = OBJECTIVE_COMPLETE;
+		} else if (g_Objectives[index] == NULL) {
 			objstatus = g_ObjectiveStatuses[index];
 		} else {
 			// Note: This is setting the cmd pointer to the start of the
@@ -225,12 +229,12 @@ s32 objectiveCheck(s32 index)
 					}
 					break;
 				case OBJECTIVETYPE_COMPFLAGS:
-					if (!chrHasStageFlag(NULL, cmd[1])) {
+					if ((campaignObjectiveFlags(index) & cmd[1]) == 0) {
 						reqstatus = OBJECTIVE_INCOMPLETE;
 					}
 					break;
 				case OBJECTIVETYPE_FAILFLAGS:
-					if (chrHasStageFlag(NULL, cmd[1])) {
+					if ((campaignObjectiveFlags(index) & cmd[1]) != 0) {
 						reqstatus = OBJECTIVE_FAILED;
 					}
 					break;

@@ -7,7 +7,7 @@
 // When adding or removing items from this table you must also update the
 // STAGEINDEX constants in constants.h.
 // NOTE: extra fields have been appended to stagetableentry in the PC port
-struct stagetableentry g_Stages[61] = {
+struct stagetableentry g_Stages[64] = {
 	//       id,                  ?, lia, liw, lih, ?, bg,               tiles,              pads,              setup,           mpsetp,             ?                0x18,            0x1c, ?, ?,  ?, 0x24,      0x28,   ?,   ?,   ?  ?  alarm                   extragunmem
 	/*0x00*/ STAGE_MAIANSOS,      2, 255, 100, 100, 0, FILE_BG_LUE_SEG,  FILE_BG_LUE_TILES,  FILE_BG_SEV_PADS,  FILE_USETUPSEV,  FILE_UMP_SETUPSEV,  1,                1,   100,             0, 0, -1, 255, 0x3e19999a, -1,  400, 0,   1, SFX_ALARM_DEFAULT,      0,
 	/*0x01*/ STAGE_TEST_SILO,     2, 255, 100, 100, 0, FILE_BG_OAT_SEG,  FILE_BG_OAT_TILES,  FILE_BG_OAT_PADS,  FILE_USETUPSILO, FILE_UMP_SETUPSILO, 1,                1,   100,             0, 0, -1, 255, 0x3e19999a, 700, 800, 400, 1, SFX_ALARM_DEFAULT,      0,
@@ -70,6 +70,10 @@ struct stagetableentry g_Stages[61] = {
 	/*0x3a*/ STAGE_TEST_MP18,     2, 255, 100, 100, 0, FILE_BG_MP18_SEG, FILE_BG_MP18_TILES, FILE_BG_MP18_PADS, FILE_USETUPMP18, FILE_UMP_SETUPMP18, 1,                1,   100,             0, 0, -1, 255, 0x3e19999a, -1,  400, 0,   1, SFX_ALARM_DEFAULT,      0,
 	/*0x3b*/ STAGE_TEST_MP19,     2, 255, 100, 100, 0, FILE_BG_MP19_SEG, FILE_BG_MP19_TILES, FILE_BG_MP19_PADS, FILE_USETUPMP19, FILE_UMP_SETUPMP19, 1,                1,   100,             0, 0, -1, 255, 0x3e19999a, -1,  400, 0,   1, SFX_ALARM_DEFAULT,      0,
 	/*0x3c*/ STAGE_TEST_MP20,     2, 255, 100, 100, 0, FILE_BG_MP20_SEG, FILE_BG_MP20_TILES, FILE_BG_MP20_PADS, FILE_USETUPMP20, FILE_UMP_SETUPMP20, 1,                0.5, 100,             0, 0, -1, 255, 0x3e19999a, -1,  400, 0,   1, SFX_ALARM_DEFAULT,      0,
+	// Merged missions (PC port): the first leg's row with the merged files
+	/*0x3d*/ STAGE_MERGED_DD,     2, 255, 100, 100, 0, FILE_BG_DD_SEG, FILE_BG_DD_TILES, FILE_BG_DD_PADS, FILE_USETUPDD, FILE_UMP_SETUPAME, 1, 1, 100, 0, 0, 40, 255, 0x3e19999a, -1, 400, 0, 1, SFX_ALARM_DEFAULT, 0, 
+	/*0x3e*/ STAGE_MERGED_CHI,    2, 255, 100, 100, 0, FILE_BG_CHI_SEG, FILE_BG_CHI_TILES, FILE_BG_CHI_PADS, FILE_USETUPCHI, FILE_UMP_SETUPPETE, 1, 1, 100, 0, 0, -1, 255, 0x3e19999a, -1, 400, 0, 1, SFX_ALARM_CHICAGO, 25 * 1024, 
+	/*0x3f*/ STAGE_MERGED_A51,    2, 255, 100, 100, 0, FILE_BG_A51_SEG, FILE_BG_A51_TILES, FILE_BG_A51_PADS, FILE_USETUPA51, FILE_UMP_SETUPLUE, 1, 1, 100, 0, 0, -1, 255, 0x3e19999a, -1, 400, 0, 1, SFX_ALARM_INFILTRATION, 0, 
 };
 
 struct stagetableentry *stageGetCurrent(void)

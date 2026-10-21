@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/debug.h"
+#include "game/campaign.h"
 #include "game/dlights.h"
 #include "game/game_006900.h"
 #include "game/portal.h"
@@ -1065,11 +1066,11 @@ Gfx *bgRenderScene(Gfx *gdl)
 		}
 
 		if (PLAYERCOUNT() == 1
-				&& (stagenum == STAGE_DEFECTION
-					|| stagenum == STAGE_EXTRACTION
-					|| stagenum == STAGE_TEST_OLD
-					|| stagenum == STAGE_INFILTRATION
-					|| stagenum == STAGE_ESCAPE
+				&& (campaignStageIs(STAGE_DEFECTION)
+					|| campaignStageIs(STAGE_EXTRACTION)
+					|| campaignStageIs(STAGE_TEST_OLD)
+					|| campaignStageIs(STAGE_INFILTRATION)
+					|| campaignStageIs(STAGE_ESCAPE)
 					|| stagenum == STAGE_ATTACKSHIP)) {
 			gdl = text0f153628(gdl);
 

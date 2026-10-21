@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "lib/sched.h"
 #include "game/player.h"
+#include "game/campaign.h"
 #include "game/mplayer/mplayer.h"
 #include "game/options.h"
 #include "bss.h"
@@ -50,7 +51,7 @@ s32 stageGetPrimaryTrack(s32 stagenum)
 	i = 0;
 
 	while (g_StageTracks[i].stagenum) {
-		if (g_StageTracks[i].stagenum == stagenum) {
+		if (g_StageTracks[i].stagenum == campaignLegStage(stagenum)) {
 			if (g_StageTracks[i].primarytrack == -1) {
 				return mpChooseTrack();
 			}
@@ -69,7 +70,7 @@ s32 stageGetAmbientTrack(s32 stagenum)
 	s32 i = 0;
 
 	while (g_StageTracks[i].stagenum) {
-		if (g_StageTracks[i].stagenum == stagenum) {
+		if (g_StageTracks[i].stagenum == campaignLegStage(stagenum)) {
 			return g_StageTracks[i].ambienttrack;
 		}
 
@@ -84,7 +85,7 @@ s32 stageGetNrgTrack(s32 stagenum)
 	s32 i = 0;
 
 	while (g_StageTracks[i].stagenum) {
-		if (g_StageTracks[i].stagenum == stagenum) {
+		if (g_StageTracks[i].stagenum == campaignLegStage(stagenum)) {
 			return g_StageTracks[i].xtrack;
 		}
 

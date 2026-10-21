@@ -2021,3 +2021,22 @@
 #else
 #define NUM_FILES 2013
 #endif
+
+/*
+ * Merged missions (PC port, src/game/campaign.c). These files exist only on
+ * disk, under the data folder's files/, never in the ROM; the slots are named
+ * in port/src/romdata.c.
+ */
+#define FILE_BG_DD_SEG      (NUM_FILES + 0)
+#define FILE_BG_DD_TILES    (NUM_FILES + 1)
+#define FILE_BG_DD_PADS     (NUM_FILES + 2)
+#define FILE_USETUPDD       (NUM_FILES + 3)
+#define FILE_BG_CHI_SEG     (NUM_FILES + 4)
+#define FILE_BG_CHI_TILES   (NUM_FILES + 5)
+#define FILE_BG_CHI_PADS    (NUM_FILES + 6)
+#define FILE_USETUPCHI      (NUM_FILES + 7)
+#define FILE_BG_A51_SEG     (NUM_FILES + 8)
+#define FILE_BG_A51_TILES   (NUM_FILES + 9)
+#define FILE_BG_A51_PADS    (NUM_FILES + 10)
+#define FILE_USETUPA51      (NUM_FILES + 11)
+#define NUM_FILES_MERGED    (NUM_FILES + 12)

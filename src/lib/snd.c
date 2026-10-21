@@ -2,6 +2,7 @@
 #include "n_libaudio.h"
 #include "constants.h"
 #include "game/file.h"
+#include "game/campaign.h"
 #include "game/lv.h"
 #include "game/music.h"
 #include "bss.h"
@@ -1835,9 +1836,9 @@ void sndTick(void)
 #endif
 
 	if (!g_SndDisabled && g_SndMp3Enabled) {
-		if (g_Vars.stagenum == STAGE_AIRFORCEONE) {
+		if (campaignStageIs(STAGE_AIRFORCEONE)) {
 			sndTickNosedive();
-		} else if (g_Vars.stagenum == STAGE_ESCAPE) {
+		} else if (campaignStageIs(STAGE_ESCAPE)) {
 			sndTickUfo();
 		}
 

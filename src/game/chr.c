@@ -6,6 +6,7 @@
 #include "game/chraction.h"
 #include "game/debug.h"
 #include "game/chr.h"
+#include "game/campaign.h"
 #include "game/env.h"
 #include "game/prop.h"
 #include "game/propsnd.h"
@@ -1395,7 +1396,7 @@ void chrRemove(struct prop *prop, bool free)
 	propDeregisterRooms(prop);
 
 	if (g_Vars.stagenum == STAGE_CITRAINING) {
-		eyespyobj = objFindByTagId(0x26);
+		eyespyobj = objFindByTagId(campaignLegTag(0x26));
 	}
 
 	child = prop->child;

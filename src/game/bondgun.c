@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
+#include "game/campaign.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
 #include "game/inv.h"
@@ -3651,7 +3652,7 @@ u32 bgunCalculateGunMemCapacity(void)
 
 	if (PLAYERCOUNT() == 1) {
 #ifdef PLATFORM_N64
-		switch (g_Vars.stagenum) {
+		switch (campaignEffectiveStage()) {
 		case STAGE_CHICAGO:
 		case STAGE_AIRBASE:
 		case STAGE_VILLA:
@@ -4648,7 +4649,7 @@ void bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 				}
 
 				weapon->gunfunc = gset->weaponfunc;
-			} else if (gset->weaponnum == WEAPON_ECMMINE && g_Vars.stagenum == STAGE_CITRAINING) {
+			} else if (gset->weaponnum == WEAPON_ECMMINE && campaignStageIs(STAGE_CITRAINING)) {
 				data = dtGetData();
 
 				if (data->intraining) {
@@ -5584,7 +5585,7 @@ void bgunTickSwitch2(void)
 
 				chr->hidden |= CHRHFLAG_DISGUISED;
 
-				if (g_Vars.stagenum == STAGE_RESCUE) {
+				if (campaignStageIs(STAGE_RESCUE)) {
 					chr->hidden |= CHRHFLAG_UNTARGETABLE;
 				}
 
@@ -12264,12 +12265,12 @@ bool bgunAmmotypeAllowsUnlimitedAmmo(u32 ammotype)
 {
 	switch (ammotype) {
 	case AMMOTYPE_REMOTE_MINE:
-		if (g_Vars.stagenum == STAGE_CHICAGO) {
+		if (campaignStageIs(STAGE_CHICAGO)) {
 			return false;
 		}
 		break;
 	case AMMOTYPE_TIMED_MINE:
-		if (g_Vars.stagenum == STAGE_AIRFORCEONE) {
+		if (campaignStageIs(STAGE_AIRFORCEONE)) {
 			return false;
 		}
 		break;

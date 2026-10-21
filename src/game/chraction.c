@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/acosfasinf.h"
+#include "game/campaign.h"
 #include "game/atan2f.h"
 #include "game/bg.h"
 #include "game/body.h"
@@ -3723,7 +3724,7 @@ void chrKnockOut(struct chrdata *chr, f32 angle, s32 hitpart, struct gset *gset)
 		if (mpstatsGetTotalKnockoutCount() < 2) {
 			chr->chrflags |= CHRCFLAG_KEEPCORPSEKO;
 
-			if (mainGetStageNum() == STAGE_VILLA) {
+			if (campaignStageIs(STAGE_VILLA)) {
 				chr->hidden |= CHRHFLAG_ANTINONINTERACTABLE;
 			}
 		}
@@ -4295,7 +4296,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	// Don't damage if in CI training outside of training session
 	if (chr->prop == g_Vars.currentplayer->prop
 			&& g_Vars.currentplayer->training == false
-			&& mainGetStageNum() == STAGE_CITRAINING) {
+			&& campaignStageIs(STAGE_CITRAINING)) {
 		return;
 	}
 
@@ -13635,7 +13636,7 @@ void chraTickBg(void)
 
 #if VERSION >= VERSION_JPN_FINAL
 	// JPN fades corpses immediately
-	if (numdeadonscreen && g_Vars.stagenum != STAGE_CITRAINING) {
+	if (numdeadonscreen && !campaignStageIs(STAGE_CITRAINING)) {
 		for (i = 0; i < numchrs; i++) {
 			struct chrdata *chr = &g_ChrSlots[i];
 
@@ -15036,7 +15037,7 @@ bool chrAdjustPosForSpawn(f32 chrradius, struct coord *pos, RoomNum *rooms, f32 
 #else
 	// On Defection some floating point precision issues result in P2 being placed in the way of P1's cutscene animation,
 	// which makes P1 start stuck in P2 in coop, so the distance is increased to 80 to avoid that
-	const f32 distance = (g_Vars.stagenum == STAGE_DEFECTION) ? 80.f : 60.f;
+	const f32 distance = (campaignStageIs(STAGE_DEFECTION)) ? 80.f : 60.f;
 	for (i = 0; i < 8; i++) {
 		testpos.x = pos->x + sinf(curangle) * distance;
 		testpos.y = pos->y;

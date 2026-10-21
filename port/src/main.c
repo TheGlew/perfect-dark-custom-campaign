@@ -182,6 +182,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Campaign.Difficulty", &g_CampaignDifficulty, 0, 2);
 	configRegisterInt("Debug.CampaignAutoComplete", &g_CampaignDebugAutoComplete, 0, 3600);
 	configRegisterInt("Debug.CampaignAutoDie", &g_CampaignDebugAutoDie, 0, 3600);
+	configRegisterInt("Debug.CampaignAutoJoint", &g_CampaignDebugAutoJoint, 0, 3600);
 	configRegisterString("Textures.Pack", g_TexpackDir, sizeof(g_TexpackDir));
 	configRegisterString("Textures.DumpDir", g_TexpackDumpDir, sizeof(g_TexpackDumpDir));
 	configRegisterInt("Textures.Dump", &g_TexpackDump, 0, 2);

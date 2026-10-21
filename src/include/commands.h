@@ -4395,3 +4395,68 @@
 
 #define if_target_outside_my_yvisang(label) \
 	if_fov_check_with_target(0, FALSE, TRUE, label)
+
+/*
+ * Commands of the PC port's merged missions (src/game/campaign.c). A merged
+ * mission holds several levels' scripts at once, so each leg's stage flags
+ * live in a word of their own, objectives are checked by range, and a leg's
+ * success exit hands over to the next leg instead of ending the level.
+ */
+
+/**
+ * Sets a stage flag in the given leg's flag word.
+ */
+#define set_stage_flag_w(word, stageflag) \
+	mkshort(0x01e1), \
+	word, \
+	mkword(stageflag),
+
+/**
+ * Unsets a stage flag in the given leg's flag word.
+ */
+#define unset_stage_flag_w(word, stageflag) \
+	mkshort(0x01e2), \
+	word, \
+	mkword(stageflag),
+
+/**
+ * Checks a stage flag in the given leg's flag word.
+ */
+#define if_stage_flag_w_eq(word, stageflag, bool, label) \
+	mkshort(0x01e3), \
+	word, \
+	mkword(stageflag), \
+	bool, \
+	label,
+
+/**
+ * Jumps to the label if every objective from first to last (inclusive) is complete.
+ */
+#define if_objectives_range_complete(first, last, label) \
+	mkshort(0x01e4), \
+	first, \
+	last, \
+	label,
+
+/**
+ * Ends the current leg of a merged mission and begins the given one.
+ */
+#define campaign_joint(leg) \
+	mkshort(0x01e5), \
+	leg,
+
+/**
+ * Jumps to the label once the merged mission has reached the given leg.
+ */
+#define if_campaign_leg_ge(leg, label) \
+	mkshort(0x01e6), \
+	leg, \
+	label,
+
+/**
+ * Jumps to the label while the merged mission is on exactly the given leg.
+ */
+#define if_campaign_leg_eq(leg, label) \
+	mkshort(0x01e7), \
+	leg, \
+	label,

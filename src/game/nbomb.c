@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/chraction.h"
+#include "game/campaign.h"
 #include "game/dlights.h"
 #include "game/game_006900.h"
 #include "game/nbomb.h"
@@ -938,7 +939,7 @@ Gfx *gasRender(Gfx *gdl)
 		ROOM_LUE_0090,
 	};
 
-	if (g_Vars.stagenum == STAGE_ESCAPE) {
+	if (campaignStageIs(STAGE_ESCAPE)) {
 		f32 intensityfrac = 1.0f;
 
 		campos.x = g_Vars.currentplayer->cam_pos.x;

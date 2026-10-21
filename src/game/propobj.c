@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/bondmove.h"
+#include "game/campaign.h"
 #include "game/bondwalk.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
@@ -9939,7 +9940,7 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 	mtx3Copy(rotmtx3, chopper->base.realrot);
 
 	if (chopper->power > 0.45f && !firing && (chopper->base.flags2 & OBJFLAG2_INVISIBLE) == 0 && objIsHealthy(&chopper->base)) {
-		soundnum = g_Vars.stagenum == STAGE_EXTRACTION ? SFX_810D : SFX_8110;
+		soundnum = campaignStageIs(STAGE_EXTRACTION) ? SFX_810D : SFX_8110;
 
 		psCreateIfNotDupe(prop, soundnum, PSTYPE_CHOPPERHUM2);
 	} else {
@@ -9976,7 +9977,7 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 	chopperIncrementBarrel(prop, firing);
 
 	if ((chopper->base.flags2 & OBJFLAG2_INVISIBLE) == 0 && objIsHealthy(&chopper->base)) {
-		soundnum = g_Vars.stagenum == STAGE_EXTRACTION ? SFX_SHIP_HUM : SFX_810F;
+		soundnum = campaignStageIs(STAGE_EXTRACTION) ? SFX_SHIP_HUM : SFX_810F;
 
 		psCreateIfNotDupe(prop, soundnum, PSTYPE_CHOPPERHUM1);
 	} else {
@@ -15982,7 +15983,7 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 
 u32 propobjGetCiTagId(struct prop *prop)
 {
-	if (prop && g_Vars.stagenum == STAGE_CITRAINING) {
+	if (prop && campaignStageIs(STAGE_CITRAINING)) {
 		u8 tags[8] = { 0x0e, 0x0f, 0x10, 0x47, 0x46, 0x45, 0x1b, 0x7f };
 		struct defaultobj *obj = prop->obj;
 		u32 i;
@@ -20773,7 +20774,7 @@ bool propdoorInteract(struct prop *doorprop)
 			struct textoverride *override = invGetTextOverrideForObj(&door->base);
 			u8 intraining = false;
 
-			if (g_Vars.stagenum == STAGE_CITRAINING) {
+			if (campaignStageIs(STAGE_CITRAINING)) {
 				struct trainingdata *devdata = dtGetData();
 				struct trainingdata *holodata = getHoloTrainingData();
 
@@ -20840,7 +20841,7 @@ void gasReleaseFromPos(struct coord *pos)
 	// Gas objects don't exist in PD, so this stage number was likely carried
 	// over from GoldenEye. It maps to GE's Egypt stage, which uses gas for a
 	// visual effect only.
-	if (mainGetStageNum() == STAGE_MP_G5BUILDING) {
+	if (campaignStageIs(STAGE_MP_G5BUILDING)) {
 		g_GasReleaseTimerMax240 = 120;
 		g_GasEnableDamage = false;
 	} else {
@@ -21058,7 +21059,7 @@ void alarmTick(void)
 		// These sounds are alarm sounds.
 		// They go for a fraction of a second and are repeated by this function.
 #ifdef PLATFORM_N64
-		switch (g_Vars.stagenum) {
+		switch (campaignEffectiveStage()) {
 		case STAGE_CHICAGO:      sound = SFX_ALARM_CHICAGO; break;
 		case STAGE_G5BUILDING:   sound = SFX_ALARM_2; break;
 		case STAGE_AIRBASE:      sound = SFX_ALARM_AIRBASE; break;
@@ -21108,8 +21109,8 @@ void alarmTick(void)
 
 	// For G5, stop alarm after 55 seconds.
 	// For all other levels, stop alarm after 30 seconds.
-	if ((g_AlarmTimer > TICKS(1800) && mainGetStageNum() != STAGE_G5BUILDING)
-			|| (g_AlarmTimer > TICKS(3300) && mainGetStageNum() == STAGE_G5BUILDING)) {
+	if ((g_AlarmTimer > TICKS(1800) && !campaignStageIs(STAGE_G5BUILDING))
+			|| (g_AlarmTimer > TICKS(3300) && campaignStageIs(STAGE_G5BUILDING))) {
 		alarmDeactivate();
 	}
 

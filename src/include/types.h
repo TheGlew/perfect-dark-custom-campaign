@@ -4338,8 +4338,8 @@ struct activemenu {
 
 struct briefing {
 	u16 briefingtextnum;
-	u16 objectivenames[6]; // index 0 is the briefing, and the rest are objectives
-	u16 objectivedifficulties[6]; // index 0 is unused
+	u16 objectivenames[MAX_OBJECTIVES + 1]; // index 0 is the briefing, and the rest are objectives
+	u16 objectivedifficulties[MAX_OBJECTIVES + 1]; // index 0 is unused
 	u16 langbank;
 };
 

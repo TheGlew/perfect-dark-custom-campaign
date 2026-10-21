@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <PR/ultratypes.h>
 #include "lib/rzip.h"
+#include "files.h"
 #include "romdata.h"
 #include "fs.h"
 #include "system.h"
@@ -396,6 +397,23 @@ s32 romdataInit(void)
 	// load file table from the files segment
 	romdataInitFiles();
 
+	// the merged missions' files (src/game/campaign.c) exist only on disk, under files/
+	{
+		static const char *const mergedNames[] = {
+			"bgdata/bg_dd.seg", "bgdata/bg_dd_tilesZ", "bgdata/bg_dd_padsZ", "UsetupddZ",
+			"bgdata/bg_chi.seg", "bgdata/bg_chi_tilesZ", "bgdata/bg_chi_padsZ", "UsetupchiZ",
+			"bgdata/bg_a51.seg", "bgdata/bg_a51_tilesZ", "bgdata/bg_a51_padsZ", "Usetupa51Z",
+		};
+		s32 k;
+
+		for (k = 0; k < (s32)ARRAYCOUNT(mergedNames); k++) {
+			fileSlots[NUM_FILES + k].name = mergedNames[k];
+			fileSlots[NUM_FILES + k].data = NULL;
+			fileSlots[NUM_FILES + k].size = 0;
+			fileSlots[NUM_FILES + k].source = SRC_UNLOADED;
+		}
+	}
+
 	sysLogPrintf(LOG_NOTE, "romdataInit: loaded rom, size = %u", g_RomFileSize);
 
 	return 0;
@@ -500,6 +518,10 @@ u8 *romdataFileLoad(s32 fileNum, u32 *outSize)
 
 	if (!out) {
 		out = fileSlots[fileNum].data;
+	}
+
+	if (!out && fileNum >= NUM_FILES) {
+		sysFatalError("Merged mission file %s is missing from the data folder's files/ (build it with tools/merge).", fileSlots[fileNum].name);
 	}
 
 	if (out && outSize) {

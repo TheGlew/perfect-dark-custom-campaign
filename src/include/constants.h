@@ -21,7 +21,7 @@
 #define MAX_EYESPYDARTS        8
 #define MAX_MPCHRS             (MAX_PLAYERS + MAX_BOTS)
 #define MAX_MPPLAYERCONFIGS    (MAX_PLAYERS + 2)
-#define MAX_OBJECTIVES         10
+#define MAX_OBJECTIVES         16 // 10 in the N64 game; a merged mission lists every leg's
 #define MAX_PLAYERS            4
 #define MAX_PROPSPERROOMCHUNK  7
 #define MAX_ROOMPROPLISTCHUNKS 256
@@ -4029,6 +4029,10 @@
 #define STAGE_TEST_OLD      0x4e
 #define STAGE_DUEL          0x4f
 #define STAGE_TEST_LAM      0x50
+// Merged missions of the PC port (src/game/campaign.c): one level holding several of the above
+#define STAGE_MERGED_DD     0x51 // Defection, Investigation and Extraction
+#define STAGE_MERGED_CHI    0x52 // Chicago and the G5 Building
+#define STAGE_MERGED_A51    0x53 // Infiltration, Rescue and Escape
 #define STAGE_TITLE         0x5a
 #define STAGE_BOOTPAKMENU   0x5b
 #define STAGE_CREDITS       0x5c
@@ -4120,6 +4124,9 @@
 #define STAGEINDEX_TEST_MP18     0x3a
 #define STAGEINDEX_TEST_MP19     0x3b
 #define STAGEINDEX_TEST_MP20     0x3c
+#define STAGEINDEX_MERGED_DD     0x3d
+#define STAGEINDEX_MERGED_CHI    0x3e
+#define STAGEINDEX_MERGED_A51    0x3f
 
 #define SURFACETYPE_DEFAULT      0
 #define SURFACETYPE_STONE        1

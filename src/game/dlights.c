@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/cheats.h"
+#include "game/campaign.h"
 #include "game/dlights.h"
 #include "game/gfxmemory.h"
 #include "game/propsnd.h"
@@ -386,7 +387,7 @@ void roomInitLights(s32 roomnum)
 		room->br_base += (room->br_light_max - room->br_light_min) * 4 / 5;
 	}
 
-	switch (g_Vars.stagenum) {
+	switch (campaignEffectiveStage()) {
 	case STAGE_EXTRACTION:
 	case STAGE_DEFECTION:
 		if (roomnum == 0x003d) { // near the top comms hub
@@ -440,7 +441,7 @@ void roomInitLights(s32 roomnum)
 			light->sparking = false;
 			light->vulnerable = true;
 
-			switch (g_Vars.stagenum) {
+			switch (campaignEffectiveStage()) {
 			case STAGE_CITRAINING:
 			case STAGE_DEFENSE:
 				if (roomnum == 0x000a) { // firing range
@@ -640,7 +641,7 @@ void func0f001c0c(void)
 		}
 	}
 
-	if (g_Vars.stagenum == STAGE_EXTRACTION || g_Vars.stagenum == STAGE_DEFECTION) {
+	if (campaignStageIs(STAGE_EXTRACTION) || campaignStageIs(STAGE_DEFECTION)) {
 		var80061438[98] = false;
 		var80061438[100] = false;
 	}
@@ -1777,7 +1778,7 @@ void func0f004c6c(void)
 		portalGetAvgVertexPos(i, &var80061428[i]);
 	}
 
-	if (g_Vars.stagenum == STAGE_INVESTIGATION) {
+	if (campaignStageIs(STAGE_INVESTIGATION)) {
 		var8009cad8[0] = 1;
 	}
 

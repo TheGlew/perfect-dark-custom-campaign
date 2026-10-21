@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/tex.h"
+#include "game/campaign.h"
 #include "game/camera.h"
 #include "game/bg.h"
 #include "game/env.h"
@@ -301,6 +302,7 @@ void envSetStageNum(s32 stagenum)
 
 void envChooseAndApply(s32 stagenum, bool allowoverride)
 {
+	stagenum = campaignLegStage(stagenum);
 	struct nofogenvironment *finalenv = NULL;
 	struct nofogenvironment *env2;
 	struct fogenvironment *env1;

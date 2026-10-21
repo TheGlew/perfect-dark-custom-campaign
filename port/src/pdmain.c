@@ -160,6 +160,9 @@ struct stageallocation g_StageAllocations8Mb[] = {
 	{ STAGE_TEST_OLD,      "-ml0 -me0 -mgfx120 -mvtx98 -ma400"             },
 	{ STAGE_DUEL,          "-ml0 -me0 -mgfx120 -mvtx100 -ma700"            },
 	{ STAGE_TEST_LAM,      "-ml0 -me0 -mgfx120 -mvtx98 -ma400"             },
+	{ STAGE_MERGED_DD,     "-ml0 -me0 -mgfx110 -mgfxtra80 -mvtx100 -ma700" },
+	{ STAGE_MERGED_CHI,    "-ml0 -me0 -mgfx110 -mgfxtra80 -mvtx100 -ma700" },
+	{ STAGE_MERGED_A51,    "-ml0 -me0 -mgfx110 -mgfxtra80 -mvtx100 -ma500" },
 	{ STAGE_TEST_ARCH,     "-ml0 -me0 -mgfx200 -mvtx200 -ma400"            },
 	{ STAGE_TEST_LEN,      "-ml0 -me0 -mgfx120 -mvtx98 -ma300"             },
 	{ STAGE_TITLE,         "-ml0 -me0 -mgfx80 -mvtx20 -ma001"              },
@@ -630,6 +633,7 @@ void mainEndStage(void)
  */
 void mainChangeToStage(s32 stagenum)
 {
+	stagenum = campaignRedirectStage(stagenum);
 	pak0f11c6d0();
 
 	g_MainChangeToStageNum = stagenum;
