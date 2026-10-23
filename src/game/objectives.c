@@ -208,9 +208,6 @@ s32 objectiveCheck(s32 index)
 		if (campaignObjectiveForced(index)) {
 			// a finished leg of a merged mission: complete whatever the world says
 			objstatus = OBJECTIVE_COMPLETE;
-		} else if (campaignObjectivePending(index)) {
-			// a leg not yet reached: its characters and items are not there to check
-			objstatus = OBJECTIVE_INCOMPLETE;
 		} else if (g_Objectives[index] == NULL) {
 			objstatus = g_ObjectiveStatuses[index];
 		} else {
@@ -227,7 +224,8 @@ s32 objectiveCheck(s32 index)
 				case OBJECTIVETYPE_DESTROYOBJ:
 					{
 						struct defaultobj *obj = objFindByTagId(cmd[1]);
-						if (obj && obj->prop && objIsHealthy(obj)) {
+						// an object a later leg's character will carry is not destroyed, only not here yet
+						if (obj && (campaignObjIsDeferred(obj) || (obj->prop && objIsHealthy(obj)))) {
 							reqstatus = OBJECTIVE_INCOMPLETE;
 						}
 					}
@@ -249,7 +247,9 @@ s32 objectiveCheck(s32 index)
 						s32 collected = false;
 						s32 i;
 
-						if (!obj || !obj->prop || !objIsHealthy(obj)) {
+						if (obj && campaignObjIsDeferred(obj)) {
+							reqstatus = OBJECTIVE_INCOMPLETE;
+						} else if (!obj || !obj->prop || !objIsHealthy(obj)) {
 							reqstatus = OBJECTIVE_FAILED;
 						} else {
 							prevplayernum = g_Vars.currentplayernum;
@@ -277,7 +277,9 @@ s32 objectiveCheck(s32 index)
 					{
 						struct defaultobj *obj = objFindByTagId(cmd[1]);
 
-						if (obj && obj->prop) {
+						if (obj && campaignObjIsDeferred(obj)) {
+							reqstatus = OBJECTIVE_INCOMPLETE;
+						} else if (obj && obj->prop) {
 							s32 i;
 							s32 prevplayernum = g_Vars.currentplayernum;
 
@@ -301,7 +303,9 @@ s32 objectiveCheck(s32 index)
 						struct defaultobj *obj = objFindByTagId(cmd[1]);
 
 						if (cmd[2] == 0) {
-							if (!obj || !obj->prop || !objIsHealthy(obj)) {
+							if (obj && campaignObjIsDeferred(obj)) {
+								reqstatus = OBJECTIVE_INCOMPLETE;
+							} else if (!obj || !obj->prop || !objIsHealthy(obj)) {
 								reqstatus = OBJECTIVE_FAILED;
 							} else {
 								reqstatus = OBJECTIVE_INCOMPLETE;

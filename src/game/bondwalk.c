@@ -17,6 +17,7 @@
 #include "game/bondhead.h"
 #include "game/playermgr.h"
 #include "game/propobj.h"
+#include "game/bg.h"
 #include "bss.h"
 #include "lib/model.h"
 #include "lib/snd.h"
@@ -1058,6 +1059,42 @@ void bwalkUpdateVertical(void)
 		newfallspeed = fallspeed - g_Vars.lvupdate60freal * multiplier;
 		newmanground += g_Vars.lvupdate60freal * (fallspeed + newfallspeed) * 0.5f;
 		fallspeed = newfallspeed;
+
+#ifndef PLATFORM_N64
+		// a jump stops under the ceiling. The walls' collision has no ceilings and a
+		// room's ceiling is usually the floor of the room above, so the floor is asked
+		// for at the point the head would reach: a floor above the feet there is the
+		// ceiling, and the rise is capped beneath it.
+		if (g_Vars.currentplayer->isjumping && newmanground > g_Vars.currentplayer->vv_manground) {
+			f32 top = ymax - g_Vars.currentplayer->vv_manground; // the cylinder's top above the feet
+			struct coord probe = g_Vars.currentplayer->prop->pos;
+			RoomNum inrooms[21];
+			RoomNum aboverooms[21];
+			f32 floorabove;
+
+			probe.y = newmanground + top + 2.0f;
+			inrooms[0] = -1;
+			bgFindRoomsByPos(&probe, inrooms, aboverooms, 20, NULL);
+
+			if (inrooms[0] != -1) {
+				floorabove = cdFindGroundAtCyl(&probe, g_Vars.currentplayer->bond2.radius, inrooms, NULL, NULL);
+
+				if (floorabove > g_Vars.currentplayer->vv_manground + top && floorabove < probe.y + 1.0f) {
+					newmanground = floorabove - 2.0f - top;
+
+					if (newmanground < g_Vars.currentplayer->vv_manground) {
+						newmanground = g_Vars.currentplayer->vv_manground;
+					}
+
+					fallspeed = 0;
+
+					if (bwalkLogJumps()) {
+						sysLogPrintf(LOG_NOTE, "jump: ceiling at %.1f stops the rise, feet %.1f", floorabove, newmanground);
+					}
+				}
+			}
+		}
+#endif
 
 		if (newmanground < g_Vars.currentplayer->vv_ground) {
 			newfallspeed = g_Vars.currentplayer->vv_manground - g_Vars.currentplayer->vv_ground;

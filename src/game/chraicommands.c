@@ -1945,7 +1945,7 @@ bool aiIfChrInRoom(void)
 		return false;
 	}
 
-	if (cmd[3] == 2 && stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING) {
+	if (cmd[3] == 2 && campaignEffectiveStageIndex() == STAGEINDEX_G5BUILDING) {
 		s32 i;
 		bool pass = false;
 
@@ -6362,7 +6362,7 @@ bool aiDetectEnemyOnSameFloor(void)
 				distance = chrGetDistanceToChr(g_Vars.chrdata, chr->chrnum);
 
 				if (distance < closestdist) {
-					if (distance < scandist || stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MAIANSOS) {
+					if (distance < scandist || campaignEffectiveStageIndex() == STAGEINDEX_MAIANSOS) {
 						if (distance < closestdist) {
 							closestdist = distance;
 							newtarget = chr->chrnum;

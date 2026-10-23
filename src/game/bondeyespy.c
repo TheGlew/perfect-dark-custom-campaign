@@ -24,6 +24,7 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+#include "game/campaign.h"
 #ifndef PLATFORM_N64
 #include "input.h"
 #endif
@@ -563,7 +564,7 @@ bool eyespyTryLaunch(void)
 	bool insafe;
 	char text[48];
 
-	insafe = stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING
+	insafe = campaignEffectiveStageIndex() == STAGEINDEX_G5BUILDING
 		&& g_Vars.currentplayer->prop->rooms[0] == 0x53;
 
 	playerpos.x = g_Vars.currentplayer->prop->pos.x;
@@ -578,8 +579,8 @@ bool eyespyTryLaunch(void)
 	g_Vars.currentplayer->eyespy->up.z = 0;
 	g_Vars.currentplayer->eyespy->startuptimer60 = 0;
 
-	if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING
-			|| stageGetIndex(g_Vars.stagenum) == STAGEINDEX_CITRAINING) {
+	if (campaignEffectiveStageIndex() == STAGEINDEX_G5BUILDING
+			|| campaignEffectiveStageIndex() == STAGEINDEX_CITRAINING) {
 		g_EyespyMinHeight = 30;
 	} else {
 		g_EyespyMinHeight = 80;

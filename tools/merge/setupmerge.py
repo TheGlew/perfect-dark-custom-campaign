@@ -484,11 +484,18 @@ class Merger:
             leg.lists[m.group(2)] = m.group(3)
             leg.list_order.append(m.group(2))
         # A later leg's background scripts (ids 0x1000 and up run chr-less from stage start)
-        # wait for their leg; an intro's runs only while its leg is the current one.
+        # wait for their leg; an intro's runs only while its leg is the current one. A
+        # script that only watches objects standing from load (a checker that marks a
+        # thing destroyed) runs from load, so what the player does to that thing in an
+        # earlier leg is credited when it happens.
+        leg.early_lists = []
         if leg.index > 0:
             prefix = leg.prefix.lower()
             for arr, lid in leg.table:
                 name = prefix + arr
+                if lid >= 0x1000 and name in leg.lists and self.runs_early(leg, name, lid):
+                    leg.early_lists.append(arr)
+                    continue
                 if lid >= 0x1000 and name in leg.lists and not leg.lists[name].lstrip().startswith("beginloop(0xfe)"):
                     check = "if_campaign_leg_eq" if lid in leg.intro_list_ids else "if_campaign_leg_ge"
                     gate = "\n\tbeginloop(0xfe)\n\t\t%s(%d, /*goto*/ 0xfd)\n\tendloop(0xfe)\n\n\tlabel(0xfd)\n" % (check, leg.index)
@@ -508,6 +515,54 @@ class Merger:
             leg.intro.append((name, args))
             if name == "spawn":
                 leg.spawn_pad = args[0]
+
+    # commands a background script may run before its leg: control flow, timers, the
+    # difficulty, the leg's own flags and objectives, a message, and the state of an object
+    EARLY_SAFE = {"beginloop", "endloop", "label", "goto_next", "goto_first", "yield", "endlist",
+                  "if_difficulty_lt", "if_difficulty_gt", "if_object_in_good_condition",
+                  "set_stage_flag_w", "unset_stage_flag_w", "if_stage_flag_w_eq", "show_hudmsg",
+                  "set_ailist", "restart_timer", "if_timer_gt", "if_timer_lt",
+                  "if_objective_complete", "if_objective_failed", "if_all_objectives_complete"}
+
+    def runs_early(self, leg, name, lid):
+        """Whether a later leg's background script may run from stage start: it watches an
+        object, every command is in EARLY_SAFE (the flag commands already in their per-leg
+        form), set_ailist only ends the script itself, and every object it watches stands
+        from load (not one a deferred character carries; tags are already renumbered)."""
+        if lid in leg.intro_list_ids:
+            return False
+        body = leg.lists[name]
+        calls = list(find_calls(body, self.cmd_names))
+        names = {n for _s, _e, n, _a in calls}
+        bare = re.compile(r"(?m)^[ \t]*([a-z_][a-z0-9_]*)[ \t]*(?://.*)?$")
+        names |= {m.group(1) for m in bare.finditer(body) if m.group(1) in self.cmd_names}
+        if "if_object_in_good_condition" not in names or not names <= self.EARLY_SAFE:
+            return False
+        props = None
+        for _s, _e, n, args in calls:
+            if n == "set_ailist" and (args[0].strip() != "CHR_SELF" or args[1].strip() != "GAILIST_IDLE"):
+                return False
+            if n == "if_object_in_good_condition":
+                tok = args[0].strip()
+                if tok.startswith(leg.prefix):
+                    tok = tok[len(leg.prefix):]
+                val = leg.defines.get(tok, tok)
+                if not is_int(val):
+                    return False
+                tagid = leg.tag_map.get(int(val, 0), int(val, 0))
+                if props is None:
+                    props = self.prop_calls(leg)
+                found = False
+                for i, (pn, pargs, raw) in enumerate(props):
+                    if pn == "tag" and is_int(pargs[0]) and int(pargs[0], 0) == tagid:
+                        target = i + int(pargs[1].strip(), 0)
+                        if 0 <= target < len(props) and "OBJFLAG_ASSIGNEDTOCHR" in props[target][2]:
+                            return False
+                        found = True
+                        break
+                if not found:
+                    return False
+        return True
 
     @staticmethod
     def _body(text, header_re):
@@ -792,6 +847,8 @@ class Merger:
                 "spawn_pad": leg.spawn_pad, "intro": [[n, [a.strip() for a in args]] for n, args in leg.intro],
                 "excluded_objects": getattr(leg, "excluded_count", 0), "gates": len(leg.gates),
                 "dedup": getattr(leg, "dedup", {}),
+                "early_lists": getattr(leg, "early_lists", []),
+                "outro_id": 0 if leg.final else next((lid for arr, lid in leg.table if arr == leg.outro), 0),
             })
         json.dump(side, open(self.sidecar, "w"), indent=1)
         self.write_legs_table(side)
@@ -814,9 +871,9 @@ class Merger:
             w = ", ".join(weapons + ["0"] * (6 - len(weapons)))
             am = ", ".join("{ %s, %s }" % (t, q) for t, q in ammo) or "{ 0, 0 }"
             off = self.world_offsets[leg["world"]] if getattr(self, "world_offsets", None) else (0, 0, 0)
-            rows.append("\t{ %s, %d, %d, 0x%04x, %d, %d, %d, %d, { %d, %d, %d }, %s, %d, { %s }, %d, { %s } }," % (
+            rows.append("\t{ %s, %d, %d, 0x%04x, %d, %d, %d, %d, { %d, %d, %d }, %s, %d, { %s }, %d, { %s }, 0x%04x }," % (
                 stage, leg["objective_first"], leg["objective_count"], pad, leg["world"], leg["room_offset"],
-                leg["chr_base"], leg["tag_base"], off[0], off[1], off[2], outfit, len(weapons), w, len(ammo), am))
+                leg["chr_base"], leg["tag_base"], off[0], off[1], off[2], outfit, len(weapons), w, len(ammo), am, leg["outro_id"]))
         text = "/* Generated by tools/merge/setupmerge.py for merged mission %s. Do not edit. */\n" % key
         text += "static const struct campaignleg g_CampaignLegs_%s[] = {\n%s\n};\n" % (key, "\n".join(rows))
         # a door two legs place is one door; each leg locks it as its own setup says, from its joint

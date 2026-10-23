@@ -31,6 +31,7 @@ extern s32 g_CampaignCarryInventory;
 extern s32 g_CampaignCarryHealth;
 extern s32 g_CampaignRetryOnDeath;
 extern s32 g_CampaignSkipCutscenes;
+extern s32 g_CampaignJointFade;        // 1: a joint's teleport happens behind the game's white screen; 0: in place
 extern s32 g_CampaignDifficulty;
 
 // pd.ini [Debug] - test scaffolding for the automated soak, never on by default
@@ -60,6 +61,7 @@ struct campaignleg {
 		u8 type;
 		u16 qty;
 	} ammo[6];
+	u16 outrolist;   // the AI list whose end is the leg's success exit, 0 for the final leg
 };
 
 // A door two legs place is one door; when a leg begins, the door takes the lock
@@ -82,6 +84,8 @@ bool campaignWarpPlayerToPad(s32 padnum);
 // merged missions
 bool campaignIsMergedStage(s32 stagenum);
 s32 campaignEffectiveStage(void);
+s32 campaignEffectiveStageIndex(void);  // the stage table index of the leg's level
+bool campaignStageIncludes(s32 stagenum); // the stage, or a merged mission one of whose legs is it
 bool campaignStageIs(s32 stagenum);
 s32 campaignLegStage(s32 stagenum);
 s32 campaignFirstLegStage(s32 stagenum);
@@ -89,7 +93,8 @@ s32 campaignRedirectStage(s32 stagenum);
 s32 campaignLegTag(s32 tagnum);
 void campaignLegOffset(struct coord *pos);
 s32 campaignDeferredChrBase(void);
-bool campaignObjectivePending(s32 index);
+struct defaultobj;
+bool campaignObjIsDeferred(struct defaultobj *obj); // an object a later leg's character will carry, not yet in the world
 void campaignJoint(s32 leg, bool fade);
 void campaignLoadLangBanks(s32 stagenum);
 u32 campaignObjectiveFlags(s32 index);

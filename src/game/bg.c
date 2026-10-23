@@ -975,7 +975,7 @@ Gfx *bgRenderSceneInXray(Gfx *gdl)
 
 Gfx *bgRenderScene(Gfx *gdl)
 {
-	s32 stagenum = g_Vars.stagenum;
+	s32 stagenum = campaignEffectiveStage(); // the leg's level in a merged mission: its sky rooms apply
 	s32 firstroomnum = -1;
 	s32 i;
 	s32 roomnum;
@@ -5856,10 +5856,10 @@ void bgTickPortals(void)
 			if (g_BgPortals[0].verticesoffset == 0) {
 				for (room = 1; room < g_Vars.roomcount; room++) {
 					if (bgRoomIntersectsScreenBox(room, &box)
-							&& ((g_StageIndex != STAGEINDEX_INFILTRATION && g_StageIndex != STAGEINDEX_RESCUE && g_StageIndex != STAGEINDEX_ESCAPE) || room != 0xf)
-							&& (g_StageIndex != STAGEINDEX_SKEDARRUINS || room != 0x02)
-							&& ((g_StageIndex != STAGEINDEX_DEFECTION && g_StageIndex != STAGEINDEX_EXTRACTION) || room != 0x01)
-							&& (g_StageIndex != STAGEINDEX_ATTACKSHIP || room != 0x71)) {
+							&& ((campaignEffectiveStageIndex() != STAGEINDEX_INFILTRATION && campaignEffectiveStageIndex() != STAGEINDEX_RESCUE && campaignEffectiveStageIndex() != STAGEINDEX_ESCAPE) || room != 0xf)
+							&& (campaignEffectiveStageIndex() != STAGEINDEX_SKEDARRUINS || room != 0x02)
+							&& ((campaignEffectiveStageIndex() != STAGEINDEX_DEFECTION && campaignEffectiveStageIndex() != STAGEINDEX_EXTRACTION) || room != 0x01)
+							&& (campaignEffectiveStageIndex() != STAGEINDEX_ATTACKSHIP || room != 0x71)) {
 						bgSetRoomOnscreen(room, 0, &box);
 					}
 				}

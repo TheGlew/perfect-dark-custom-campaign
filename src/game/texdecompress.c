@@ -14,6 +14,7 @@
 #include "mod.h"
 #include "platform.h"
 #include "texpack.h"
+#include "system.h"
 #endif
 
 struct texture *g_Textures;
@@ -2301,6 +2302,12 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 			}
 
 			if ((!iszlib && freebytes < 4300) || (iszlib && freebytes < 2600)) {
+#ifndef PLATFORM_N64
+				// the model keeps drawing with whatever sits at the pool's start: a black or
+				// garbage surface. Game.MemorySize is the stage pool.
+				sysLogPrintf(LOG_WARNING, "texture %d not loaded: %u bytes free in the %s pool", g_TexNumToLoad, freebytes,
+						usingsharedpool ? "stage" : "texture");
+#endif
 				*updateword = osVirtualToPhysical(pool->start);
 				return;
 			}

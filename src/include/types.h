@@ -4341,6 +4341,8 @@ struct activemenu {
 #ifndef PLATFORM_N64
 	/*    */ f32 mousex;
 	/*    */ f32 mousey;
+	/*    */ s8 wpnpage;   // the weapon screen's page: 0 the eight slots as ever, then eight more items a page
+	/*    */ s8 wpnpages;
 #endif
 };
 

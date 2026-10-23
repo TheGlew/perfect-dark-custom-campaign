@@ -181,6 +181,7 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Campaign.CarryHealth", &g_CampaignCarryHealth, 0, 1);
 	configRegisterInt("Campaign.RetryOnDeath", &g_CampaignRetryOnDeath, 0, 1);
 	configRegisterInt("Campaign.SkipCutscenes", &g_CampaignSkipCutscenes, 0, 1);
+	configRegisterInt("Campaign.JointFade", &g_CampaignJointFade, 0, 1);
 	configRegisterInt("Campaign.Difficulty", &g_CampaignDifficulty, 0, 2);
 	configRegisterInt("Debug.CampaignAutoComplete", &g_CampaignDebugAutoComplete, 0, 3600);
 	configRegisterInt("Debug.CampaignAutoDie", &g_CampaignDebugAutoDie, 0, 3600);

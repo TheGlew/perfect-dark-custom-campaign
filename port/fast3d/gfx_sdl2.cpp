@@ -367,6 +367,12 @@ static inline void sync_framerate_with_timer(void) {
 
 extern "C" bool gfx_opengl_dump_backbuffer(uint32_t width, uint32_t height, const char *path);
 
+// A single frame the game asks for by name (campaign.c's test switches); written before
+// the next swap and cleared.
+extern "C" {
+char g_FrameDumpRequest[128] = "";
+}
+
 /**
  * PD_PCDUMP="first-last[:step]" writes the back buffer of those frames as
  * pcdump/frame_NNNNNN.png, read before the swap (after it the buffer is
@@ -402,6 +408,21 @@ static void gfx_sdl_frame_dump(void) {
 
     if (frame == 1 || frame % 1000 == 0) {
         sysLogPrintf(LOG_NOTE, "frame %u presented (dump %s)", frame, state == 1 ? "on" : "off");
+    }
+
+    if (g_FrameDumpRequest[0]) {
+        int w = 0;
+        int h = 0;
+        SDL_GL_GetDrawableSize(wnd, &w, &h);
+#ifdef _WIN32
+        mkdir("pcdump");
+#else
+        mkdir("pcdump", 0755);
+#endif
+        if (gfx_opengl_dump_backbuffer((uint32_t)w, (uint32_t)h, g_FrameDumpRequest)) {
+            sysLogPrintf(LOG_NOTE, "frame dump: wrote %s (%dx%d)", g_FrameDumpRequest, w, h);
+        }
+        g_FrameDumpRequest[0] = '\0';
     }
 
     if (state == 1 && (int)frame >= lo && (int)frame <= hi && ((int)frame - lo) % step == 0) {

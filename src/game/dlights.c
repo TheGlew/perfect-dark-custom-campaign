@@ -396,15 +396,16 @@ void roomInitLights(s32 roomnum)
 		break;
 	}
 
-	if (((g_StageIndex == STAGEINDEX_INFILTRATION || g_StageIndex == STAGEINDEX_RESCUE || g_StageIndex == STAGEINDEX_ESCAPE || g_StageIndex == STAGEINDEX_MAIANSOS)
+	// the leg's level in a merged mission: its sky room stays rendered
+	if (((campaignEffectiveStageIndex() == STAGEINDEX_INFILTRATION || campaignEffectiveStageIndex() == STAGEINDEX_RESCUE || campaignEffectiveStageIndex() == STAGEINDEX_ESCAPE || campaignEffectiveStageIndex() == STAGEINDEX_MAIANSOS)
 				&& roomnum == 0x000f) // freight elevator shaft
-			|| ((g_StageIndex == STAGEINDEX_DEFECTION || g_StageIndex == STAGEINDEX_EXTRACTION || g_StageIndex == STAGEINDEX_MBR)
+			|| ((campaignEffectiveStageIndex() == STAGEINDEX_DEFECTION || campaignEffectiveStageIndex() == STAGEINDEX_EXTRACTION || campaignEffectiveStageIndex() == STAGEINDEX_MBR)
 				&& roomnum == 0x0001) // moon
-			|| ((g_StageIndex == STAGEINDEX_SKEDARRUINS || g_StageIndex == STAGEINDEX_WAR)
+			|| ((campaignEffectiveStageIndex() == STAGEINDEX_SKEDARRUINS || campaignEffectiveStageIndex() == STAGEINDEX_WAR)
 				&& roomnum == 0x0002) // fake sky
-			|| ((s32)g_StageIndex == STAGEINDEX_TEST_OLD
+			|| (campaignEffectiveStageIndex() == STAGEINDEX_TEST_OLD
 				&& roomnum == 0x0001)
-			|| (g_StageIndex == STAGEINDEX_ATTACKSHIP
+			|| (campaignEffectiveStageIndex() == STAGEINDEX_ATTACKSHIP
 				&& roomnum == 0x0071)) { // planet
 		room->flags |= ROOMFLAG_RENDERALWAYS;
 	} else {

@@ -7,6 +7,7 @@
 #include "lib/memp.h"
 #include "data.h"
 #include "types.h"
+#include "game/campaign.h"
 #ifndef PLATFORM_N64
 #include "game/player.h"
 #endif
@@ -246,12 +247,12 @@ void bgunReset(void)
 	g_Vars.currentplayer->gunzoomfovs[1] = ADJUST_ZOOM_FOV(60);
 	g_Vars.currentplayer->gunzoomfovs[2] = ADJUST_ZOOM_FOV(30);
 
-	if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_AIRBASE) {
+	if (campaignEffectiveStageIndex() == STAGEINDEX_AIRBASE) {
 		g_Weapons[WEAPON_EYESPY]->name = L_GUN_061; // "DrugSpy"
 		g_Weapons[WEAPON_EYESPY]->shortname = L_GUN_061; // "DrugSpy"
 		g_Weapons[WEAPON_EYESPY]->flags &= ~(WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN);
-	} else if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_CHICAGO
-			|| (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR)) {
+	} else if (campaignEffectiveStageIndex() == STAGEINDEX_CHICAGO
+			|| (campaignEffectiveStageIndex() == STAGEINDEX_MBR)) {
 		g_Weapons[WEAPON_EYESPY]->name = L_GUN_062; // "BombSpy"
 		g_Weapons[WEAPON_EYESPY]->shortname = L_GUN_062; // "BombSpy"
 		g_Weapons[WEAPON_EYESPY]->flags &= ~(WEAPONFLAG_DETERMINER_S_AN | WEAPONFLAG_DETERMINER_F_AN);

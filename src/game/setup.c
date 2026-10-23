@@ -1183,8 +1183,15 @@ void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 
 #ifndef PLATFORM_N64
 		if (getenv("PD_LOGCHRS")) {
-			sysLogPrintf(LOG_NOTE, "door model %d at pad %d (%.0f, %.0f, %.0f) created, keyflags 0x%x, flags2 0x%x",
-					modelnum, door->base.pad, pos.x, pos.y, pos.z, door->keyflags, door->base.flags2);
+			struct room *room = &g_Rooms[pad.room];
+			bool inside = pos.x >= room->bbmin[0] - 1 && pos.x <= room->bbmax[0] + 1
+				&& pos.y >= room->bbmin[1] - 1 && pos.y <= room->bbmax[1] + 1
+				&& pos.z >= room->bbmin[2] - 1 && pos.z <= room->bbmax[2] + 1;
+
+			sysLogPrintf(LOG_NOTE, "door model %d at pad %d (%.0f, %.0f, %.0f) created, keyflags 0x%x, flags2 0x%x, room %d (%d lights)%s%s%s",
+					modelnum, door->base.pad, pos.x, pos.y, pos.z, door->keyflags, door->base.flags2, pad.room, room->numlights,
+					inside ? "" : " OUTSIDE ITS ROOM", g_ModelStates[modelnum].modeldef ? "" : " NO MODELDEF",
+					prop->rooms[0] == pad.room ? "" : " PROP ROOM DIFFERS");
 		}
 #endif
 	} else {

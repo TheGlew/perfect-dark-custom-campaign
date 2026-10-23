@@ -117,6 +117,18 @@ void amTick(void)
 					buttonspressed = 0;
 				}
 
+#ifndef PLATFORM_N64
+				// the weapon screen's pages turn with the next and previous weapon buttons
+				if (g_AmMenus[g_AmIndex].screenindex == 0 && g_AmMenus[g_AmIndex].wpnpages > 1 && !g_Vars.normmplayerisrunning) {
+					s32 step = (buttonspressed & BUTTON_WPNFORWARD) ? 1 : (buttonspressed & BUTTON_WPNBACK) ? -1 : 0;
+
+					if (step) {
+						g_AmMenus[g_AmIndex].wpnpage = (g_AmMenus[g_AmIndex].wpnpage + step + g_AmMenus[g_AmIndex].wpnpages) % g_AmMenus[g_AmIndex].wpnpages;
+						amAssignWeaponSlots();
+					}
+				}
+#endif
+
 				// JPN fixes the bug that's documented in amChangeScreen
 				if (controlmode == CONTROLMODE_13 || controlmode == CONTROLMODE_14) {
 					if (buttonsstate & (L_TRIG | R_TRIG)) {

@@ -10058,7 +10058,7 @@ void chopperTickFall(struct prop *chopperprop)
 
 	goalroty = chopper->roty + *x + *z;
 
-	if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_EXTRACTION) {
+	if (campaignStageIncludes(STAGE_EXTRACTION)) {
 		// The Extraction chopper falls without any collision checks and is
 		// reaped once it reaches the lower barrier
 		if (chopperprop->pos.y < -30000) {
@@ -17106,10 +17106,10 @@ void weaponGetPickupText(char *buffer, s32 weaponnum, bool dual)
 		&& !(playercount == 2 && (optionsGetScreenSplit() == SCREENSPLIT_VERTICAL || IS4MB()));
 
 	if (weaponnum == WEAPON_EYESPY) {
-		if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_AIRBASE) {
+		if (campaignEffectiveStageIndex() == STAGEINDEX_AIRBASE) {
 			weaponnum = 998;
-		} else if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR
-				|| stageGetIndex(g_Vars.stagenum) == STAGEINDEX_CHICAGO) {
+		} else if (campaignEffectiveStageIndex() == STAGEINDEX_MBR
+				|| campaignEffectiveStageIndex() == STAGEINDEX_CHICAGO) {
 			weaponnum = 997;
 		}
 	}

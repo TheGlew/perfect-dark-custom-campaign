@@ -43,6 +43,16 @@
 #include "game/stagetable.h"
 #include "game/title.h"
 #include "lib/main.h"
+#include "lib/ailist.h"
+#include "game/propobj.h"
+#include "game/bg.h"
+#include "game/chr.h"
+#include "game/prop.h"
+#include "lib/model.h"
+#include "lib/collision.h"
+#include "lib/memp.h"
+
+extern char g_FrameDumpRequest[128]; // port/fast3d/gfx_sdl2.cpp
 #include "lib/vi.h"
 #include "system.h"
 
@@ -51,6 +61,7 @@ s32 g_CampaignCarryInventory = 1;
 s32 g_CampaignCarryHealth = 1;
 s32 g_CampaignRetryOnDeath = 1;
 s32 g_CampaignSkipCutscenes = 0;
+s32 g_CampaignJointFade = 1;
 s32 g_CampaignDifficulty = 0;
 s32 g_CampaignDebugAutoComplete = 0;
 s32 g_CampaignDebugAutoDie = 0;
@@ -72,6 +83,10 @@ struct campaignloadout {
 
 static void campaignMergedReset(void);
 static void campaignTickMerged(struct player *player);
+static bool campaignIsBoundaryCutscene(void);
+static void campaignTickTestOutro(s32 elapsed);
+static void campaignTickTestTour(s32 elapsed);
+static void campaignTickTestDoorWatch(s32 elapsed);
 static struct campaignloadout s_JointStart;
 static s32 s_CheckpointLeg = 0;                 // where the next reset of this stage begins
 static bool s_CheckpointPending = false;        // the checkpoint applies to the next reset (a retry, or a leg chosen from the menu)
@@ -520,8 +535,60 @@ void campaignOnPlayerReset(void)
 	s_StageStart.shield = s_ShieldPending ? s_ShieldValue : s_StageStart.shield;
 	campaignLogLoadout("stage start", &s_StageStart);
 
-	sysLogPrintf(LOG_NOTE, "campaign: stage 0x%02x (solo %d) started, difficulty %d, player radius %.0f, jump height %.0f",
-			g_Vars.stagenum, idx, lvGetDifficulty(), g_PlayerRadius, g_JumpHeight);
+	sysLogPrintf(LOG_NOTE, "campaign: stage 0x%02x (solo %d) started, difficulty %d, player radius %.0f, jump height %.0f, stage memory free %u",
+			g_Vars.stagenum, idx, lvGetDifficulty(), g_PlayerRadius, g_JumpHeight,
+			mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_ONBOARD) + mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_EXPANSION));
+}
+
+/**
+ * Put the player at a position, facing an angle: chrMoveToPos's path, which
+ * the player's body model may be absent from (in first person it exists only
+ * in cutscenes and teleports).
+ */
+static bool campaignPlacePlayer(struct player *player, struct coord *pos, RoomNum *rooms, f32 angle)
+{
+	struct chrdata *chr = player->prop->chr;
+	struct coord pos2 = *pos;
+	RoomNum rooms2[8];
+	bool ok;
+
+	if (chr->model) {
+		return chrMoveToPos(chr, pos, rooms, angle, true);
+	}
+
+	roomsCopy(rooms, rooms2);
+	propSetPerimEnabled(chr->prop, false);
+	ok = chrAdjustPosForSpawn(chr->radius, &pos2, rooms2, angle, false, true, false);
+
+	if (ok) {
+		f32 ground = cdFindGroundInfoAtCyl(&pos2, chr->radius, rooms2, &chr->floorcol, &chr->floortype, NULL, &chr->floorroom, NULL, NULL);
+
+		if (ground < pos2.y - 400.0f) {
+			// no floor within four metres below: this is not a place to stand
+			sysLogPrintf(LOG_NOTE, "campaign: place player at (%.0f, %.0f, %.0f) room %d refused: ground %.0f", pos2.x, pos2.y, pos2.z, rooms2[0], ground);
+			propSetPerimEnabled(chr->prop, true);
+			return false;
+		}
+
+		chr->ground = ground;
+		chr->manground = ground;
+		chr->sumground = ground * (PAL ? 8.4175090789795f : 9.999998f);
+		chr->prop->pos = pos2;
+		propDeregisterRooms(chr->prop);
+		roomsCopy(rooms2, chr->prop->rooms);
+		chr0f0220ac(chr);
+		chr->chrflags |= CHRCFLAG_FORCETOGROUND;
+		// chrSetLookAngle turns the body model; without one, the facing is vv_theta below
+		player->vv_manground = ground;
+		player->vv_ground = ground;
+		player->vv_theta = ((M_BADTAU - angle) * 360.0f) / M_BADTAU;
+		player->vv_verta = 0;
+		player->unk1c64 = 1;
+	}
+
+	propSetPerimEnabled(chr->prop, true);
+
+	return ok;
 }
 
 /**
@@ -545,7 +612,7 @@ bool campaignWarpPlayerToPad(s32 padnum)
 	rooms[0] = pad.room;
 	rooms[1] = -1;
 	theta = atan2f(pad.look.x, pad.look.z);
-	ok = chrMoveToPos(player->prop->chr, &pad.pos, rooms, theta, true);
+	ok = campaignPlacePlayer(player, &pad.pos, rooms, theta);
 
 	sysLogPrintf(LOG_NOTE, "campaign: warp to pad %d (%.0f, %.0f, %.0f) room %d: %s; player now in room %d",
 			padnum, pad.pos.x, pad.pos.y, pad.pos.z, pad.room, ok ? "ok" : "FAILED", player->prop->rooms[0]);
@@ -573,8 +640,13 @@ static void campaignTickTestWarp(s32 elapsed)
 	}
 
 	if (secs >= 0 && !fired && elapsed >= secs * 60) {
-		fired = true;
-		campaignWarpPlayerToPad(pad);
+		struct player *player = g_Vars.bond ? g_Vars.bond : g_Vars.currentplayer;
+
+		// moving a bodiless player is a crash: wait for the body, as the joint's warp does
+		if (player && player->prop && player->prop->chr) {
+			fired = true;
+			campaignWarpPlayerToPad(pad);
+		}
 	}
 }
 
@@ -649,6 +721,333 @@ static void campaignTickTestJump(s32 elapsed, struct player *player)
 }
 
 /**
+ * PD_TESTWEAPONS="<seconds>:<count>[:<page>]" gives the player the first
+ * <count> weapons that many seconds in and turns the weapon menu to <page>, so
+ * the menu's pages can be read in the log (PD_LOGAM).
+ */
+static void campaignTickTestWeapons(s32 elapsed)
+{
+	static s32 secs = -2;
+	static s32 count = 0;
+	static s32 page = 0;
+	static bool fired = false;
+
+	if (secs == -2) {
+		const char *spec = getenv("PD_TESTWEAPONS");
+		secs = -1;
+
+		if (spec && sscanf(spec, "%d:%d:%d", &secs, &count, &page) < 2) {
+			secs = -1;
+		}
+	}
+
+	if (secs >= 0 && !fired && elapsed >= secs * 60) {
+		s32 i;
+		fired = true;
+
+		for (i = 0; i < count; i++) {
+			campaignGiveWeapon(WEAPON_FALCON2 + i, -1);
+		}
+
+		g_AmMenus[g_Vars.currentplayernum].wpnpage = page;
+		sysLogPrintf(LOG_NOTE, "campaign: test: %d weapons given, weapon menu page %d asked for", count, page + 1);
+	}
+}
+
+/**
+ * PD_TESTTOUR="<seconds>:<interval ticks>:<pad>,<pad>,..." stands the player
+ * in front of each pad in turn (a door's, say) facing it, and three quarters
+ * of the way through each stop writes pcdump/tour_<stop>_pad<pad>.png, so
+ * every door of a level can be looked at without playing to it.
+ */
+static void campaignTickTestTour(s32 elapsed)
+{
+	static s32 secs = -2;
+	static s32 interval = 120;
+	static s32 count = 0;
+	static s32 next = 0;
+	static s32 dumped = 0;
+	static s32 pads[256];
+	struct player *player = g_Vars.bond ? g_Vars.bond : g_Vars.currentplayer;
+
+	if (secs == -2) {
+		const char *spec = getenv("PD_TESTTOUR");
+		s32 n = 0;
+		secs = -1;
+
+		if (spec && sscanf(spec, "%d:%d:%n", &secs, &interval, &n) >= 2 && n > 0) {
+			const char *p = spec + n;
+
+			while (*p && count < 256) {
+				char *end;
+				long v = strtol(p, &end, 10);
+
+				if (end == p) {
+					break;
+				}
+
+				pads[count++] = (s32)v;
+				p = *end == ',' ? end + 1 : end;
+			}
+		}
+
+		if (interval < 30) {
+			interval = 30;
+		}
+	}
+
+	if (secs < 0 || count == 0 || player == NULL || player->prop == NULL) {
+		return;
+	}
+
+	if (next < count && elapsed >= secs * 60 + next * interval) {
+		if (player->prop->chr) {
+			struct pad pad;
+			struct coord pos;
+			RoomNum inrooms[21];
+			RoomNum aboverooms[21];
+			RoomNum best = -1;
+			RoomNum rooms[2];
+			bool ok;
+
+			struct coord axis;
+			f32 ex;
+			f32 ez;
+			s32 side;
+
+			padUnpack(pads[next], PADFIELD_POS | PADFIELD_LOOK | PADFIELD_UP | PADFIELD_NORMAL | PADFIELD_BBOX | PADFIELD_ROOM, &pad);
+
+			// the way through the door is the pad's thinnest horizontal axis (x is the
+			// pad's normal, z its look); stand 180 away on whichever side is in a room
+			ex = pad.bbox.xmax - pad.bbox.xmin;
+			ez = pad.bbox.zmax - pad.bbox.zmin;
+
+			if (pad.look.y > -0.7f && pad.look.y < 0.7f && (ez <= ex || pad.normal.y >= 0.7f || pad.normal.y <= -0.7f)) {
+				axis = pad.look;
+			} else {
+				axis = pad.normal;
+			}
+
+			ok = false;
+
+			// PD_TESTTOURSIDE=1 or -1 fixes the side of the door the viewer stands on
+			{
+				const char *sidespec = getenv("PD_TESTTOURSIDE");
+				s32 fixedside = sidespec ? atoi(sidespec) : 0;
+				s32 first = fixedside ? fixedside : 1;
+				s32 last = fixedside ? fixedside : -1;
+
+				const char *distspec = getenv("PD_TESTTOURDIST"); // the viewer's distance from the pad, 120 then 200 by default
+				f32 firstdist = distspec ? (f32)atoi(distspec) : 120.0f;
+
+				for (side = first; (fixedside ? side == fixedside : side >= -1) && !ok; side -= 2) {
+					f32 dist;
+
+				for (dist = firstdist; dist <= firstdist + 80.0f && !ok; dist += 80.0f) {
+					pos.x = pad.pos.x + axis.x * dist * side;
+					pos.y = pad.pos.y;
+					pos.z = pad.pos.z + axis.z * dist * side;
+					best = -1;
+					bgFindRoomsByPos(&pos, inrooms, aboverooms, 20, &best);
+					rooms[0] = best > 0 ? best : pad.room;
+					rooms[1] = -1;
+					ok = campaignPlacePlayer(player, &pos, rooms, atan2f(-axis.x * side, -axis.z * side));
+				}
+				}
+			}
+			{
+				// the door standing on this pad, if any: how open it is and its portal's state
+				struct prop *dp = g_Vars.activeprops;
+				char doorstate[96] = "no door here";
+
+				while (dp) {
+					if (dp->type == PROPTYPE_DOOR && dp->door && dp->door->base.pad == pads[next]) {
+						snprintf(doorstate, sizeof(doorstate), "door model %d frac %.2f portal %d%s", dp->door->base.modelnum, dp->door->frac,
+								dp->door->portalnum, dp->door->portalnum >= 0 ? (PORTAL_IS_CLOSED(dp->door->portalnum) ? " closed" : " open") : "");
+						break;
+					}
+
+					dp = dp->next;
+				}
+
+				sysLogPrintf(LOG_NOTE, "campaign: test: tour stop %d of %d: pad %d at (%.0f, %.0f, %.0f) room %d, look (%.2f, %.2f, %.2f) normal (%.2f, %.2f, %.2f) bbox %.0fx%.0fx%.0f, viewed from (%.0f, %.0f, %.0f) room %d: %s; %s",
+						next, count, pads[next], pad.pos.x, pad.pos.y, pad.pos.z, pad.room, pad.look.x, pad.look.y, pad.look.z,
+						pad.normal.x, pad.normal.y, pad.normal.z, ex, pad.bbox.ymax - pad.bbox.ymin, ez, pos.x, pos.y, pos.z, rooms[0], ok ? "ok" : "FAILED", doorstate);
+			}
+			next++;
+		}
+	}
+
+	if (dumped < next && elapsed >= secs * 60 + (dumped + 1) * interval - interval / 4) {
+		snprintf(g_FrameDumpRequest, sizeof(g_FrameDumpRequest), "pcdump/tour_%03d_pad%d.png", dumped, pads[dumped]);
+		dumped++;
+	}
+}
+
+/**
+ * PD_TESTDOORS="<seconds>" probes every door that many seconds in: a closed
+ * door should block a body standing in it, tested with the door's own rooms
+ * and with the rooms the game finds at its position. A door that blocks
+ * neither is one the player walks through.
+ */
+static void campaignTickTestDoors(s32 elapsed)
+{
+	static s32 secs = -2;
+	static bool fired = false;
+
+	if (secs == -2) {
+		const char *spec = getenv("PD_TESTDOORS");
+		secs = -1;
+
+		if (spec && sscanf(spec, "%d", &secs) != 1) {
+			secs = -1;
+		}
+	}
+
+	if (secs >= 0 && !fired && elapsed >= secs * 60) {
+		struct prop *prop = g_Vars.activeprops;
+		s32 total = 0;
+		s32 open = 0;
+		s32 passable = 0;
+		fired = true;
+
+		while (prop) {
+			if (prop->type == PROPTYPE_DOOR && prop->door) {
+				struct doorobj *door = prop->door;
+				RoomNum inrooms[21];
+				RoomNum aboverooms[21];
+				s32 own;
+				s32 found;
+				total++;
+				inrooms[0] = -1;
+				bgFindRoomsByPos(&prop->pos, inrooms, aboverooms, 20, NULL);
+				own = cdTestVolume(&prop->pos, 15, prop->rooms, CDTYPE_DOORS, CHECKVERTICAL_YES, 50, -50);
+				found = inrooms[0] == -1 ? -1 : cdTestVolume(&prop->pos, 15, inrooms, CDTYPE_DOORS, CHECKVERTICAL_YES, 50, -50);
+
+				if (door->frac > 0) {
+					open++;
+				}
+
+				if (door->frac <= 0 && own != CDRESULT_COLLISION) {
+					passable++;
+				}
+
+				if (door->frac > 0 || own != CDRESULT_COLLISION || found != CDRESULT_COLLISION) {
+					sysLogPrintf(LOG_NOTE, "door check: model %d at (%.0f, %.0f, %.0f) rooms %d,%d frac %.2f type %d flags 0x%x: own rooms %s, rooms here (%d) %s",
+							door->base.modelnum, prop->pos.x, prop->pos.y, prop->pos.z, prop->rooms[0], prop->rooms[1], door->frac, door->doortype, door->base.flags,
+							own == CDRESULT_COLLISION ? "block" : "PASS", inrooms[0], found == CDRESULT_COLLISION ? "block" : found < 0 ? "no room" : "PASS");
+				}
+			}
+
+			prop = prop->next;
+		}
+
+		sysLogPrintf(LOG_NOTE, "campaign: test: %d doors probed, %d open, %d closed and passable in their own rooms", total, open, passable);
+	}
+}
+
+/**
+ * PD_TESTDOORWATCH="<seconds>:<pad>,<pad>,..." logs, once a second from that
+ * time, how open the doors on those pads are and whether their portals are
+ * closed, to see what moves a door nobody touched.
+ */
+static void campaignTickTestDoorWatch(s32 elapsed)
+{
+	static s32 secs = -2;
+	static s32 count = 0;
+	static s32 pads[16];
+	static s32 lastsec = -1;
+	s32 sec;
+
+	if (secs == -2) {
+		const char *spec = getenv("PD_TESTDOORWATCH");
+		s32 n = 0;
+		secs = -1;
+
+		if (spec && sscanf(spec, "%d:%n", &secs, &n) >= 1 && n > 0) {
+			const char *p = spec + n;
+
+			while (*p && count < 16) {
+				char *end;
+				long v = strtol(p, &end, 10);
+
+				if (end == p) {
+					break;
+				}
+
+				pads[count++] = (s32)v;
+				p = *end == ',' ? end + 1 : end;
+			}
+		}
+	}
+
+	sec = elapsed / 60;
+
+	if (secs >= 0 && count > 0 && sec >= secs && sec != lastsec) {
+		char buf[256];
+		s32 len = 0;
+		s32 i;
+		lastsec = sec;
+
+		for (i = 0; i < count && len < (s32)sizeof(buf) - 48; i++) {
+			struct prop *dp = g_Vars.activeprops;
+			bool found = false;
+
+			while (dp) {
+				if (dp->type == PROPTYPE_DOOR && dp->door && dp->door->base.pad == pads[i]) {
+					len += snprintf(buf + len, sizeof(buf) - len, " pad %d: frac %.2f mode %d%s;", pads[i], dp->door->frac, dp->door->mode,
+							dp->door->portalnum >= 0 ? (PORTAL_IS_CLOSED(dp->door->portalnum) ? " portal closed" : " portal open") : "");
+					found = true;
+					break;
+				}
+
+				dp = dp->next;
+			}
+
+			if (!found) {
+				len += snprintf(buf + len, sizeof(buf) - len, " pad %d: no door;", pads[i]);
+			}
+		}
+
+		sysLogPrintf(LOG_NOTE, "door watch at %ds:%s", sec, buf);
+	}
+}
+
+/**
+ * PD_TESTDESTROY="<seconds>:<tag>" destroys the object with that merged tag
+ * that many seconds in, as gunfire would, to see what it credits.
+ */
+static void campaignTickTestDestroy(s32 elapsed)
+{
+	static s32 secs = -2;
+	static s32 tag = -1;
+	static bool fired = false;
+
+	if (secs == -2) {
+		const char *spec = getenv("PD_TESTDESTROY");
+		secs = -1;
+
+		if (spec && sscanf(spec, "%d:%d", &secs, &tag) != 2) {
+			secs = -1;
+		}
+	}
+
+	if (secs >= 0 && !fired && elapsed >= secs * 60) {
+		struct defaultobj *obj = objFindByTagId(tag);
+		fired = true;
+
+		if (obj && obj->prop) {
+			obj->flags &= ~OBJFLAG_INVINCIBLE;
+			objDamage(obj, 100000.0f, &obj->prop->pos, WEAPON_REMOTEMINE, -1);
+			sysLogPrintf(LOG_NOTE, "campaign: test: object tag %d (model %d) hit for destruction: %s", tag, obj->modelnum,
+					obj->prop == NULL ? "gone" : objIsHealthy(obj) ? "still healthy" : "destroyed");
+		} else {
+			sysLogPrintf(LOG_NOTE, "campaign: test: object tag %d not in the world (%s)", tag, obj ? "not created" : "no such tag");
+		}
+	}
+}
+
+/**
  * Called every frame from lvTick.
  */
 void campaignTick(void)
@@ -668,7 +1067,25 @@ void campaignTick(void)
 
 	if (!g_CampaignContinuous) {
 		// the stock game; only the soak's forced completion applies, so a stock
-		// level can be seen ending through its own end screen
+		// level can be seen ending through its own end screen, and the door tour,
+		// so a stock level's doors can be compared with a merged mission's
+		if (g_CampaignSkipCutscenes) {
+			// the soak's cutscene skip applies to a stock level too, so a stock level
+			// and a merged mission can be compared from the same second
+			if (g_Vars.in_cutscene || g_Vars.tickmode == TICKMODE_CUTSCENE) {
+				g_CutsceneSkipRequested = true;
+			}
+
+			if (g_Vars.autocutplaying) {
+				g_Vars.autocutgroupskip = true;
+			}
+		}
+
+		if (!g_MainIsEndscreen && !player->isdead) {
+			campaignTickTestTour(lvGetStageTime60());
+			campaignTickTestDoorWatch(lvGetStageTime60());
+		}
+
 		if (g_CampaignDebugAutoComplete > 0 && !s_DebugCompleteFired && !g_MainIsEndscreen && !player->isdead
 				&& lvGetStageTime60() >= g_CampaignDebugAutoComplete * 60) {
 			s_DebugCompleteFired = true;
@@ -683,6 +1100,12 @@ void campaignTick(void)
 		campaignTickTestWarp(lvGetStageTime60());
 		campaignTickTestRestart(lvGetStageTime60());
 		campaignTickTestJump(lvGetStageTime60(), player);
+		campaignTickTestDestroy(lvGetStageTime60());
+		campaignTickTestWeapons(lvGetStageTime60());
+		campaignTickTestTour(lvGetStageTime60());
+		campaignTickTestDoors(lvGetStageTime60());
+		campaignTickTestDoorWatch(lvGetStageTime60());
+		campaignTickTestOutro(lvGetStageTime60());
 		campaignTickMerged(player);
 	}
 
@@ -694,7 +1117,7 @@ void campaignTick(void)
 		s_ShieldPending = false;
 	}
 
-	if (g_CampaignSkipCutscenes) {
+	if (g_CampaignSkipCutscenes || campaignIsBoundaryCutscene()) {
 		if (g_Vars.in_cutscene || g_Vars.tickmode == TICKMODE_CUTSCENE) {
 			g_CutsceneSkipRequested = true;
 		}
@@ -802,6 +1225,34 @@ bool campaignStageIs(s32 stagenum)
 	return g_Vars.stagenum == stagenum || campaignEffectiveStage() == stagenum;
 }
 
+s32 campaignEffectiveStageIndex(void)
+{
+	return stageGetIndex(campaignEffectiveStage());
+}
+
+/**
+ * Whether the stage is that level, or a merged mission that holds it as a leg:
+ * for things a level's objects do whichever leg is current (Extraction's
+ * hovercopter falls out of the sky even when shot during Defection).
+ */
+bool campaignStageIncludes(s32 stagenum)
+{
+	const struct campaignmission *mission = campaignCurrentMission();
+	s32 i;
+
+	if (g_Vars.stagenum == stagenum) {
+		return true;
+	}
+
+	for (i = 0; mission && i < mission->numlegs; i++) {
+		if (mission->legs[i].stagenum == stagenum) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 /**
  * An object tag the engine names by number for a level (the EyeSpy's, say) is
  * that number plus the leg's tag base in a merged mission.
@@ -838,15 +1289,65 @@ s32 campaignDeferredChrBase(void)
  * An objective of a leg the mission has not reached is incomplete whatever
  * the world says: its characters and items are not there yet.
  */
-bool campaignObjectivePending(s32 index)
+/**
+ * A later leg's objectives are checked for real from the start, so what the
+ * player does to a thing standing from load is credited when it happens. The
+ * one thing that cannot be read yet is an object a later leg's character will
+ * carry: it is not in the world until that leg's joint creates the character.
+ */
+bool campaignObjIsDeferred(struct defaultobj *obj)
 {
 	const struct campaignmission *mission = campaignCurrentMission();
 
-	if (mission && g_CampaignLeg + 1 < mission->numlegs) {
-		return index >= mission->legs[g_CampaignLeg + 1].objfirst;
+	if (mission && obj && obj->prop == NULL && (obj->flags & OBJFLAG_ASSIGNEDTOCHR) && g_CampaignLeg + 1 < mission->numlegs) {
+		return obj->pad >= mission->legs[g_CampaignLeg + 1].chrbase;
 	}
 
 	return false;
+}
+
+/**
+ * A joint is seamless: the ending leg's outro cutscene (its outro list is
+ * running, on a background chr or a character) and the new leg's intro
+ * cutscene (any cutscene in the first seconds of a later leg) are skipped,
+ * whatever SkipCutscenes says. The mission's own intro and ending still play.
+ */
+static bool campaignIsBoundaryCutscene(void)
+{
+	const struct campaignmission *mission = campaignCurrentMission();
+	static s32 loggedleg = -1;
+	const char *what = NULL;
+
+	if (mission == NULL || !(g_Vars.in_cutscene || g_Vars.tickmode == TICKMODE_CUTSCENE || g_Vars.autocutplaying)) {
+		loggedleg = -1;
+		return false;
+	}
+
+	if (g_CampaignLeg > 0 && lvGetStageTime60() - s_LegStartTime60 < TICKS(900)) {
+		what = "the leg's intro";
+	} else if (g_CampaignLeg + 1 < mission->numlegs && mission->legs[g_CampaignLeg].outrolist) {
+		u8 *list = ailistFindById(mission->legs[g_CampaignLeg].outrolist);
+		s32 i;
+
+		for (i = 0; list && what == NULL && i < g_NumBgChrs; i++) {
+			if (g_BgChrs[i].ailist == list) {
+				what = "the leg's outro";
+			}
+		}
+
+		for (i = 0; list && what == NULL && i < g_NumChrSlots; i++) {
+			if (g_ChrSlots[i].chrnum >= 0 && g_ChrSlots[i].ailist == list) {
+				what = "the leg's outro";
+			}
+		}
+	}
+
+	if (what && loggedleg != g_CampaignLeg) {
+		loggedleg = g_CampaignLeg;
+		sysLogPrintf(LOG_NOTE, "campaign: leg %d: a joint cutscene (%s) is skipped", g_CampaignLeg, what);
+	}
+
+	return what != NULL;
 }
 
 /**
@@ -1096,9 +1597,9 @@ void campaignJoint(s32 leg, bool fade)
 	campaignSnapshot(&s_JointStart);
 	campaignLogLoadout("leg start", &s_JointStart);
 
-	sysLogPrintf(LOG_NOTE, "campaign: joint -> leg %d (stage 0x%02x) of merged stage 0x%02x, objectives %d-%d, spawn pad %d, %s",
+	sysLogPrintf(LOG_NOTE, "campaign: joint -> leg %d (stage 0x%02x) of merged stage 0x%02x, objectives %d-%d, spawn pad %d, %s, stage memory free %u",
 			leg, to->stagenum, g_Vars.stagenum, to->objfirst, to->objfirst + to->objcount - 1, to->spawnpad,
-			fade ? "fading" : "placed");
+			fade ? "fading" : "placed", mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_ONBOARD) + mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_EXPANSION));
 }
 
 /**
@@ -1154,6 +1655,42 @@ static void campaignMergedReset(void)
 	campaignSnapshot(&s_JointStart);
 }
 
+/**
+ * PD_TESTOUTRO="<seconds>" starts the current leg's outro list that many
+ * seconds in, on the first background chr, the way the level's own end
+ * checker does, to see the leg end and the joint follow.
+ */
+static void campaignTickTestOutro(s32 elapsed)
+{
+	static s32 secs = -2;
+	static bool fired = false;
+
+	if (secs == -2) {
+		const char *spec = getenv("PD_TESTOUTRO");
+		secs = -1;
+
+		if (spec && sscanf(spec, "%d", &secs) != 1) {
+			secs = -1;
+		}
+	}
+
+	if (secs >= 0 && !fired && elapsed >= secs * 60
+			&& !g_Vars.in_cutscene && g_Vars.tickmode != TICKMODE_CUTSCENE && !g_Vars.autocutplaying) {
+		const struct campaignmission *mission = campaignCurrentMission();
+		u8 *list = mission && mission->legs[g_CampaignLeg].outrolist ? ailistFindById(mission->legs[g_CampaignLeg].outrolist) : NULL;
+		fired = true;
+
+		if (list && g_NumBgChrs > 0) {
+			g_BgChrs[0].ailist = list;
+			g_BgChrs[0].aioffset = 0;
+			sysLogPrintf(LOG_NOTE, "campaign: test: leg %d outro list 0x%04x started after %d seconds", g_CampaignLeg,
+					mission->legs[g_CampaignLeg].outrolist, secs);
+		} else {
+			sysLogPrintf(LOG_NOTE, "campaign: test: no outro list to start for leg %d", g_CampaignLeg);
+		}
+	}
+}
+
 static void campaignTickMerged(struct player *player)
 {
 	const struct campaignmission *mission = campaignCurrentMission();
@@ -1202,7 +1739,7 @@ static void campaignTickMerged(struct player *player)
 	if (g_CampaignDebugAutoJoint > 0 && s_PendingWarpPad < 0 && g_CampaignLeg + 1 < mission->numlegs
 			&& lvGetStageTime60() - s_LegStartTime60 >= g_CampaignDebugAutoJoint * 60) {
 		sysLogPrintf(LOG_NOTE, "campaign: debug: forcing the joint to leg %d after %d seconds", g_CampaignLeg + 1, g_CampaignDebugAutoJoint);
-		campaignJoint(g_CampaignLeg + 1, true);
+		campaignJoint(g_CampaignLeg + 1, g_CampaignJointFade != 0);
 	}
 }
 
@@ -1271,7 +1808,7 @@ bool aiIfObjectivesRangeComplete(void)
 bool aiCampaignJoint(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	campaignJoint(cmd[2], true);
+	campaignJoint(cmd[2], g_CampaignJointFade != 0);
 	g_Vars.aioffset += 3;
 	return false;
 }

@@ -85,6 +85,9 @@ def build(key, datadir):
                   % (l["name"], d["variants"], d["tagged_variants"]))
         for model, place, kleg, klock, mlock in d["locks"]:
             print("  %s: door %s at %s has %s's lock %s until this leg begins, then %s" % (l["name"], model, place, kleg, klock, mlock))
+    for l in side["legs"]:
+        if l.get("early_lists"):
+            print("  %s: scripts that watch objects standing from load run from load: %s" % (l["name"], ", ".join(l["early_lists"])))
 
 
 if __name__ == "__main__":

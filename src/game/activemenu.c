@@ -26,6 +26,11 @@
 #include "data.h"
 #include "types.h"
 
+#ifndef PLATFORM_N64
+#include <stdlib.h>
+#include "system.h"
+#endif
+
 struct activemenu g_AmMenus[MAX_PLAYERS];
 struct fontchar *g_AmFont1;
 struct font *g_AmFont2;
@@ -414,6 +419,11 @@ void amGetSlotDetails(s32 slot, u32 *flags, char *label)
 	case 0: // Weapon screen
 		if (slot == 4) {
 			strcpy(label, langGet(L_MISC_170)); // "Weapon"
+#ifndef PLATFORM_N64
+			if (g_AmMenus[g_AmIndex].wpnpages > 1) {
+				sprintf(label, "%s %d/%d", langGet(L_MISC_170), g_AmMenus[g_AmIndex].wpnpage + 1, g_AmMenus[g_AmIndex].wpnpages);
+			}
+#endif
 			return;
 		}
 
@@ -641,6 +651,32 @@ void amChangeScreen(s32 step)
 	g_AmMenus[g_AmIndex].slotwidth = amCalculateSlotWidth();
 }
 
+#ifndef PLATFORM_N64
+/**
+ * Whether inventory item i belongs on a later page of the weapon screen: one the
+ * screen would show, that the first page's eight slots did not take.
+ */
+static bool amItemIsBeyondFirstPage(s32 i, u8 *page0, s32 numitems)
+{
+	s32 weaponnum = invGetWeaponNumByIndex(i);
+	s32 j;
+
+	if (!((weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_DISGUISE41)
+			|| weaponnum == WEAPON_SUICIDEPILL
+			|| weaponnum == WEAPON_SUITCASE)) {
+		return false;
+	}
+
+	for (j = 0; j < 8; j++) {
+		if (page0[j] == i) {
+			return false;
+		}
+	}
+
+	return true;
+}
+#endif
+
 void amAssignWeaponSlots(void)
 {
 	s32 numitems = invGetCount();
@@ -728,6 +764,68 @@ void amAssignWeaponSlots(void)
 			}
 		}
 	}
+
+#ifndef PLATFORM_N64
+	// Solo: the eight slots hold what they always held; everything beyond them goes on
+	// further pages, eight to a page in inventory order, so every item is reachable.
+	if (!g_Vars.normmplayerisrunning) {
+		u8 page0[8];
+		s32 overflow = 0;
+		s32 page = g_AmMenus[g_AmIndex].wpnpage;
+		s32 pages;
+
+		for (j = 0; j < 8; j++) {
+			page0[j] = g_AmMenus[g_AmIndex].invindexes[j];
+		}
+
+		for (i = 0; i < numitems; i++) {
+			if (amItemIsBeyondFirstPage(i, page0, numitems)) {
+				overflow++;
+			}
+		}
+
+		pages = 1 + (overflow + 7) / 8;
+
+		if (page < 0 || page >= pages) {
+			page = 0;
+		}
+
+		if (page > 0) {
+			s32 skip = (page - 1) * 8;
+			s32 slot = 0;
+
+			for (j = 0; j < 8; j++) {
+				g_AmMenus[g_AmIndex].invindexes[j] = 0xff;
+			}
+
+			for (i = 0; i < numitems; i++) {
+				if (amItemIsBeyondFirstPage(i, page0, numitems)) {
+					if (skip > 0) {
+						skip--;
+					} else if (slot < 8) {
+						g_AmMenus[g_AmIndex].invindexes[g_AmMapping[slot]] = i;
+						slot++;
+					}
+				}
+			}
+		}
+
+		g_AmMenus[g_AmIndex].wpnpage = page;
+		g_AmMenus[g_AmIndex].wpnpages = pages;
+
+		if (getenv("PD_LOGAM")) {
+			char buf[256];
+			s32 len = 0;
+
+			for (j = 0; j < 8 && len < (s32)sizeof(buf) - 40; j++) {
+				s32 idx = g_AmMenus[g_AmIndex].invindexes[j];
+				len += snprintf(buf + len, sizeof(buf) - len, " [%d]%s", j, idx < numitems ? invGetShortNameByIndex(idx) : "-");
+			}
+
+			sysLogPrintf(LOG_NOTE, "am: %d items, %d beyond the first page, page %d of %d:%s", numitems, overflow, page + 1, pages, buf);
+		}
+	}
+#endif
 }
 
 void amOpen(void)
