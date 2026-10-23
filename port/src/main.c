@@ -174,6 +174,8 @@ PD_CONSTRUCTOR static void gameConfigInit(void)
 	configRegisterInt("Game.DisableMpDeathMusic", &g_MusicDisableMpDeath, 0, 1);
 	configRegisterInt("Game.GEMuzzleFlashes", &g_BgunGeMuzzleFlashes, 0, 1);
 	configRegisterInt("Game.MaxExplosions", &g_MaxExplosions, 6, 96);
+	configRegisterFloat("Game.PlayerRadius", &g_PlayerRadius, 10.f, 60.f);
+	configRegisterFloat("Game.JumpHeight", &g_JumpHeight, 0.f, 300.f);
 	configRegisterInt("Campaign.Continuous", &g_CampaignContinuous, 0, 1);
 	configRegisterInt("Campaign.CarryInventory", &g_CampaignCarryInventory, 0, 1);
 	configRegisterInt("Campaign.CarryHealth", &g_CampaignCarryHealth, 0, 1);

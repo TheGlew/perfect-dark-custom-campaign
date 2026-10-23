@@ -1180,6 +1180,13 @@ void setupCreateDoor(struct doorobj *door, s32 cmdindex)
 
 		propActivate(prop);
 		propEnable(prop);
+
+#ifndef PLATFORM_N64
+		if (getenv("PD_LOGCHRS")) {
+			sysLogPrintf(LOG_NOTE, "door model %d at pad %d (%.0f, %.0f, %.0f) created, keyflags 0x%x, flags2 0x%x",
+					modelnum, door->base.pad, pos.x, pos.y, pos.z, door->keyflags, door->base.flags2);
+		}
+#endif
 	} else {
 		door->base.prop = NULL;
 	}
@@ -1695,6 +1702,11 @@ void setupCreateProps(s32 stagenum)
 					if (!skipdoor && withobjs && (obj->flags2 & diffflag) == 0) {
 						setupCreateDoor(door, index);
 					}
+#ifndef PLATFORM_N64
+					else if (withobjs && (obj->flags2 & diffflag) && getenv("PD_LOGCHRS")) {
+						sysLogPrintf(LOG_NOTE, "door model %d at pad %d not created on this difficulty", obj->modelnum, obj->pad);
+					}
+#endif
 					break;
 				}
 				case OBJTYPE_DOORSCALE:

@@ -2752,6 +2752,14 @@ struct player {
 	/*0x1b48*/ f32 walkinitt;
 	/*0x1b4c*/ f32 walkinitt2;
 	/*0x1b50*/ struct coord walkinitstart;
+#ifndef PLATFORM_N64
+	// jumping (bondwalk.c): queued by the jump button, flown by the fall code
+	bool jumpqueued;
+	bool isjumping;
+	f32 jumpapex;                // the highest the feet got
+	s32 jumpstart;               // lvframe60 at take-off
+	struct coord jumpstartpos;   // where, y the feet
+#endif
 	/*0x1b5c*/ struct prop *grabbedprop;
 	/*0x1b60*/ f32 bondgrabthetaspeedsum;
 	/*0x1b64*/ s32 grabstarttime;

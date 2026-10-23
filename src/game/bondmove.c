@@ -1614,6 +1614,15 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 							}
 						}
 
+						// Jump: a press queues one take-off, taken in bwalkUpdateVertical
+						if (g_JumpHeight > 0) {
+							for (i = 0; i < numsamples; i++) {
+								if (joyGetButtonsPressedOnSample(i, contpad1, c1allowedbuttons & BUTTON_JUMP)) {
+									g_Vars.currentplayer->jumpqueued = true;
+								}
+							}
+						}
+
 						// Handle xbla-style crouch cycling
 						const s32 oldcrouchpos = g_Vars.currentplayer->crouchpos;
 						for (i = 0; i < numsamples; i++) {

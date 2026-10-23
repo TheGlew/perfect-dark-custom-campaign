@@ -6,6 +6,7 @@ static const struct campaignleg g_CampaignLegs_dd[] = {
 };
 static const struct campaignlock g_CampaignLocks_dd[] = {
 	{ 2, 42, 0x00000040, OBJFLAG2_LOCKEDFRONT },
+	{ 2, 43, 0x00000040, OBJFLAG2_LOCKEDFRONT },
 	{ 2, 48, 0x00000000, 0 },
 	{ 2, 51, 0x00000004, 0 },
 	{ 2, 52, 0x00000002, 0 },

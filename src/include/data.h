@@ -546,6 +546,8 @@ extern s32 g_MouseEndDeferredSlider;
 extern f32 g_ViShakeIntensityMult;
 extern u32 g_TexFilter2D;
 extern s32 g_HudCenter;
+extern f32 g_PlayerRadius;
+extern f32 g_JumpHeight;
 extern s32 g_MenuMouseControl;
 extern u32 g_HudAlignModeL;
 extern u32 g_HudAlignModeR;

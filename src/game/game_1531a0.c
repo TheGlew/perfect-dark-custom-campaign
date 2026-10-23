@@ -146,6 +146,8 @@ u32 var8007fbc4 = 0xffffff00;
 s32 g_HudCenter = HUDCENTER_NONE;
 u32 g_HudAlignModeL = G_ASPECT_LEFT_EXT;
 u32 g_HudAlignModeR = G_ASPECT_RIGHT_EXT;
+f32 g_PlayerRadius = 25; // the player's collision cylinder; the stock game's is 30, a guard's 20 (Game.PlayerRadius)
+f32 g_JumpHeight = 70;   // how far a jump lifts the feet, 0 for no jump (Game.JumpHeight)
 #endif
 
 void textInit(void)

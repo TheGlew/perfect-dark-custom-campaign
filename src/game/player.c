@@ -1173,7 +1173,11 @@ void playerResetBond(struct playerbond *pb, struct coord *pos)
 	pb->unk00.y = 0;
 	pb->unk00.z = 1;
 
+#ifndef PLATFORM_N64
+	pb->radius = g_PlayerRadius;
+#else
 	pb->radius = 30;
+#endif
 }
 
 void playersTickAllChrBodies(void)

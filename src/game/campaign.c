@@ -520,7 +520,8 @@ void campaignOnPlayerReset(void)
 	s_StageStart.shield = s_ShieldPending ? s_ShieldValue : s_StageStart.shield;
 	campaignLogLoadout("stage start", &s_StageStart);
 
-	sysLogPrintf(LOG_NOTE, "campaign: stage 0x%02x (solo %d) started, difficulty %d", g_Vars.stagenum, idx, lvGetDifficulty());
+	sysLogPrintf(LOG_NOTE, "campaign: stage 0x%02x (solo %d) started, difficulty %d, player radius %.0f, jump height %.0f",
+			g_Vars.stagenum, idx, lvGetDifficulty(), g_PlayerRadius, g_JumpHeight);
 }
 
 /**
@@ -604,6 +605,50 @@ static void campaignTickTestRestart(s32 elapsed)
 }
 
 /**
+ * PD_TESTJUMP="<seconds>[:<forward speed>]" jumps that many seconds in, pushed
+ * forward at that speed (units per tick) for the length of the jump. While it
+ * is set, every jump's take-off and landing is logged (bondwalk.c).
+ */
+static void campaignTickTestJump(s32 elapsed, struct player *player)
+{
+	static s32 secs = -2;
+	static s32 speed = 0;
+	static bool fired = false;
+	static bool pushing = false;
+
+	if (secs == -2) {
+		const char *spec = getenv("PD_TESTJUMP");
+		secs = -1;
+
+		if (spec && sscanf(spec, "%d:%d", &secs, &speed) < 1) {
+			secs = -1;
+		}
+	}
+
+	if (secs >= 0 && !fired && elapsed >= secs * 60) {
+		fired = true;
+		player->jumpqueued = true;
+
+		if (speed) {
+			player->bondforcespeed.x = player->bond2.unk00.x * speed;
+			player->bondforcespeed.z = player->bond2.unk00.z * speed;
+			pushing = true;
+		}
+
+		sysLogPrintf(LOG_NOTE, "campaign: test: jump at (%.0f, %.0f, %.0f) after %d seconds, forward speed %d",
+				player->prop->pos.x, player->prop->pos.y, player->prop->pos.z, secs, speed);
+	}
+
+	if (pushing && !player->jumpqueued && !player->isjumping) {
+		pushing = false;
+		player->bondforcespeed.x = 0;
+		player->bondforcespeed.z = 0;
+		sysLogPrintf(LOG_NOTE, "campaign: test: jump over at (%.0f, %.0f, %.0f)",
+				player->prop->pos.x, player->prop->pos.y, player->prop->pos.z);
+	}
+}
+
+/**
  * Called every frame from lvTick.
  */
 void campaignTick(void)
@@ -637,6 +682,7 @@ void campaignTick(void)
 	if (!g_MainIsEndscreen && !player->isdead) {
 		campaignTickTestWarp(lvGetStageTime60());
 		campaignTickTestRestart(lvGetStageTime60());
+		campaignTickTestJump(lvGetStageTime60(), player);
 		campaignTickMerged(player);
 	}
 

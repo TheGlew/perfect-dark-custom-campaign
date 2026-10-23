@@ -14,7 +14,9 @@ collide or that the engine must tell apart:
     engine to hand out at the joint
   - later legs' characters start on a gate list that waits for the leg to begin
   - an object a later leg places where an earlier one already did (same type, model and
-    place) is never created, and the later leg's tags and links point at the earlier object;
+    place) is never created, and the later leg's tags and links point at the earlier object
+    (where the earlier leg places it once per difficulty set, the later copy is excluded on
+    every difficulty any of those exists on, and a door's lock row is written per variant);
     a lift that shares a stop with an earlier leg's lift is that lift, which gains the stops
     and doors the later leg gives it
   - lift numbers of a leg in a later world are offset, as its pads' are, so two worlds' lifts
@@ -606,13 +608,16 @@ class Merger:
         and the later leg's tags and links point at the earlier object, so the thing exists
         once and what happened to it carries. A lift is the same lift when it shares a stop:
         the earlier leg's lift gains the later leg's other stops and their doors, and the
-        later leg's lift-door links are renumbered to the merged stops. Where the earlier
-        object exists only on some difficulties, the later one is excluded on those alone."""
+        later leg's lift-door links are renumbered to the merged stops. An earlier leg may
+        place an object once for every difficulty or as one variant per difficulty set; the
+        later copy is excluded on every difficulty any variant exists on, and a door's lock
+        row is written for every variant."""
         calls = {leg.index: self.prop_calls(leg) for leg in self.legs}
         self.locks = []   # (leg, command index of the door, keyflags, locked-side flags) set when the leg begins
         drop = set()      # (leg, call) never emitted
-        dup_of = {}       # (leg, call) of a later copy -> (leg, call) of the object kept
-        placed = {}       # place key -> (leg, call)
+        dup_of = {}       # (leg, call) of a later copy -> (leg, call) of the object kept (tags and links go there)
+        variants_of = {}  # (leg, call) of a later copy -> every (leg, call) the earliest leg has at that place
+        placed = {}       # place key -> [(leg, call), ...] of the earliest leg's objects there
         lifts = {}        # (leg, call) of a kept lift -> [model, stops]
         stopmap = {}      # (leg, call) of a lift copy -> {its stop: the merged lift's stop}
         for leg in self.legs:
@@ -651,9 +656,10 @@ class Merger:
                     if key is None:
                         continue
                     if key in placed:
-                        dup_of[ref] = placed[key]
-                    elif key not in mine:
-                        mine[key] = ref
+                        dup_of[ref] = placed[key][0]
+                        variants_of[ref] = placed[key]
+                    else:
+                        mine.setdefault(key, []).append(ref)
             placed.update(mine)
             lifts.update(mylifts)
         # absolute command indices, the dropped commands gone
@@ -687,7 +693,10 @@ class Merger:
                     kleg, kli = dup_of[ref]
                     kargs = calls[kleg][kli][1]
                     fi = params.index("flags2")
-                    kept_excl = set(re.findall(r"OBJFLAG2_EXCLUDE_(A|SA|PA|PD)\b", kargs[fi]))
+                    # a difficulty is covered when any variant of the earlier object exists on it
+                    kept_excl = set(EXCLUDE_ORDER)
+                    for vleg, vli in variants_of.get(ref, [dup_of[ref]]):
+                        kept_excl &= set(re.findall(r"OBJFLAG2_EXCLUDE_(A|SA|PA|PD)\b", calls[vleg][vli][1][fi]))
                     need = [d for d in EXCLUDE_ORDER if d not in kept_excl]
                     new_args[fi] = "(%s) | %s" % (args[fi].strip() or "0", " | ".join("OBJFLAG2_EXCLUDE_" + d for d in need))
                     changed = True
@@ -699,14 +708,17 @@ class Merger:
                     skip = {"pad", "pad1", "pad2", "pad3", "pad4", "door1", "door2", "door3", "door4", "flags2"}
                     if any(a.strip() != b.strip() for p, a, b in zip(params, args, kargs) if p not in skip):
                         report["differing"] += 1
-                    mine_lock, kept_lock = self.lock_of(name, params, args), self.lock_of(name, params, kargs)
-                    if kept_lock != mine_lock:
-                        # one door, two locks: the earlier leg's until this leg begins, then this leg's
-                        sides = sorted(re.findall(r"OBJFLAG2_LOCKED(FRONT|BACK)\b", args[params.index("flags2")]))
-                        self.locks.append((leg.index, abs_index[(kleg, kli)], args[params.index("keyflags")].strip(),
-                                           " | ".join("OBJFLAG2_LOCKED" + s for s in sides) or "0"))
-                        report["locks"].append([args[params.index("model")].strip(), list(self.place_of(args[params.index("pad")])),
-                                                self.legs[kleg].name, kept_lock, mine_lock])
+                    mine_lock = self.lock_of(name, params, args)
+                    for vleg, vli in variants_of.get(ref, [dup_of[ref]]):
+                        kept_lock = self.lock_of(name, params, calls[vleg][vli][1])
+                        if kept_lock != mine_lock:
+                            # one door, two locks: the earlier leg's until this leg begins, then this
+                            # leg's; a row for every variant, whichever this difficulty created
+                            sides = sorted(re.findall(r"OBJFLAG2_LOCKED(FRONT|BACK)\b", args[params.index("flags2")]))
+                            self.locks.append((leg.index, abs_index[(vleg, vli)], args[params.index("keyflags")].strip(),
+                                               " | ".join("OBJFLAG2_LOCKED" + s for s in sides) or "0"))
+                            report["locks"].append([args[params.index("model")].strip(), list(self.place_of(args[params.index("pad")])),
+                                                    self.legs[vleg].name, kept_lock, mine_lock])
                 if name == "tag":
                     new_args[1] = str(target((leg.index, li + int(args[1].strip(), 0))) - abs_index[ref])
                     changed = True

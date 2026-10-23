@@ -26,6 +26,42 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+
+#ifndef PLATFORM_N64
+#include <stdlib.h>
+#include "system.h"
+
+#define BWALK_GRAVITY 0.277777777f // per 60Hz tick, as the fall code applies it
+
+static bool bwalkLogJumps(void)
+{
+	static s32 on = -1;
+
+	if (on < 0) {
+		on = getenv("PD_TESTJUMP") != NULL || getenv("PD_LOGJUMPS") != NULL;
+	}
+
+	return on;
+}
+
+/**
+ * A jump ends: feet on the ground again, or on something below.
+ */
+static void bwalkJumpEnded(const char *how)
+{
+	struct player *player = g_Vars.currentplayer;
+	f32 dx = player->prop->pos.x - player->jumpstartpos.x;
+	f32 dz = player->prop->pos.z - player->jumpstartpos.z;
+
+	player->isjumping = false;
+
+	if (bwalkLogJumps()) {
+		sysLogPrintf(LOG_NOTE, "jump: %s after %d ticks, apex %.1f above take-off, feet %.1f ground %.1f, moved %.1f",
+				how, g_Vars.lvframe60 - player->jumpstart, player->jumpapex - player->jumpstartpos.y,
+				player->vv_manground, player->vv_ground, sqrtf(dx * dx + dz * dz));
+	}
+}
+#endif
 #ifndef PLATFORM_N64
 extern f32 fabsf(f32);
 #endif
@@ -60,6 +96,10 @@ void bwalkInit(void)
 	g_Vars.currentplayer->bondforcespeed.x = 0;
 	g_Vars.currentplayer->bondforcespeed.y = 0;
 	g_Vars.currentplayer->bondforcespeed.z = 0;
+#ifndef PLATFORM_N64
+	g_Vars.currentplayer->jumpqueued = false;
+	g_Vars.currentplayer->isjumping = false;
+#endif
 
 	if (prevmode != MOVEMODE_WALK && prevmode != MOVEMODE_CUTSCENE) {
 		g_Vars.currentplayer->sumcrouch = 0;
@@ -914,6 +954,43 @@ void bwalkUpdateVertical(void)
 		g_Vars.currentplayer->vv_ground = ground;
 	}
 
+#ifndef PLATFORM_N64
+	// Jump: leave the ground at the speed that peaks Game.JumpHeight above it; the
+	// fall code below flies the arc, the ceiling check included, and lands it
+	if (g_Vars.currentplayer->jumpqueued) {
+		g_Vars.currentplayer->jumpqueued = false;
+
+		if (g_JumpHeight > 0
+				&& !g_Vars.currentplayer->isjumping
+				&& !g_Vars.currentplayer->isfalling
+				&& !g_Vars.currentplayer->onladder
+				&& !onladder2
+				&& g_Vars.currentplayer->bdeltapos.y <= 0.0f
+				&& g_Vars.currentplayer->vv_manground <= g_Vars.currentplayer->vv_ground + 1.0f) {
+			g_Vars.currentplayer->jumpstartpos = g_Vars.currentplayer->prop->pos;
+			g_Vars.currentplayer->jumpstartpos.y = g_Vars.currentplayer->vv_manground;
+
+			if (bwalkTryMoveUpwards(1.0f) == CDRESULT_NOCOLLISION) {
+				g_Vars.currentplayer->vv_manground += 1.0f;
+				g_Vars.currentplayer->bdeltapos.y = sqrtf(2.0f * BWALK_GRAVITY * g_JumpHeight);
+				g_Vars.currentplayer->isjumping = true;
+				g_Vars.currentplayer->jumpapex = g_Vars.currentplayer->vv_manground;
+				g_Vars.currentplayer->jumpstart = g_Vars.lvframe60;
+
+				if (bwalkLogJumps()) {
+					sysLogPrintf(LOG_NOTE, "jump: take-off at (%.0f, %.0f, %.0f), feet %.1f, %.2f per tick",
+							g_Vars.currentplayer->prop->pos.x, g_Vars.currentplayer->prop->pos.y, g_Vars.currentplayer->prop->pos.z,
+							g_Vars.currentplayer->vv_manground, g_Vars.currentplayer->bdeltapos.y);
+				}
+			}
+		}
+	}
+
+	if (g_Vars.currentplayer->isjumping && g_Vars.currentplayer->vv_manground > g_Vars.currentplayer->jumpapex) {
+		g_Vars.currentplayer->jumpapex = g_Vars.currentplayer->vv_manground;
+	}
+#endif
+
 	// Standing on flat ground, or going up stairs, ledges or ramps
 	// In other words, not falling
 	if (g_Vars.currentplayer->bdeltapos.y >= 0.0f
@@ -1009,6 +1086,11 @@ void bwalkUpdateVertical(void)
 			}
 		} else {
 			// Not falling
+#ifndef PLATFORM_N64
+			if (g_Vars.currentplayer->isjumping && newmanground < g_Vars.currentplayer->vv_manground) {
+				bwalkJumpEnded("stopped by something below");
+			}
+#endif
 #if VERSION >= VERSION_NTSC_1_0
 			if (g_Vars.normmplayerisrunning == false
 					&& g_Vars.currentplayer->vv_ground < g_Vars.currentplayer->vv_manground - 30) {
@@ -1049,6 +1131,11 @@ void bwalkUpdateVertical(void)
 		}
 	} else {
 		// Not falling
+#ifndef PLATFORM_N64
+		if (g_Vars.currentplayer->isjumping) {
+			bwalkJumpEnded("on the ground");
+		}
+#endif
 		if (g_Vars.currentplayer->isfalling) {
 			g_Vars.currentplayer->isfalling = false;
 		}
@@ -1061,6 +1148,11 @@ void bwalkUpdateVertical(void)
 	if (g_Vars.currentplayer->bdeltapos.y < 0 &&
 			g_Vars.currentplayer->vv_manground <= g_Vars.currentplayer->vv_ground) {
 		// Landing after a fall
+#ifndef PLATFORM_N64
+		if (g_Vars.currentplayer->isjumping) {
+			bwalkJumpEnded("landed");
+		}
+#endif
 		if (g_Vars.currentplayer->isfalling) {
 			g_Vars.currentplayer->isfalling = false;
 		}
