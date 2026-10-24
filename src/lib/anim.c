@@ -3,6 +3,7 @@
 #include "game/prop.h"
 #include "game/game_1531a0.h"
 #include "game/bg.h"
+#include "game/campaign.h"
 #include "bss.h"
 #include "lib/dma.h"
 #include "lib/memp.h"
@@ -460,6 +461,9 @@ void animGetRotTranslateScale(s32 part, bool flip, struct skeleton *skel, s16 an
 	u8 *end;
 	s32 bitoffset;
 	u32 stack;
+#ifndef PLATFORM_N64
+	bool rootpart = part == 0;
+#endif
 
 	if (flip) {
 		part = skel->things[part][1];
@@ -542,6 +546,13 @@ void animGetRotTranslateScale(s32 part, bool flip, struct skeleton *skel, s16 an
 
 			translate->x = translate->y = translate->z = 0.0f;
 		}
+
+#ifndef PLATFORM_N64
+		if (rootpart && (g_Anims[animnum].flags & ANIMFLAG_ABSOLUTETRANSLATION)) {
+			// a merged mission's later world sits elsewhere than the level the animation was authored in
+			campaignAnimTranslationOffset(translate);
+		}
+#endif
 
 		if (flags & ANIMFIELD_S16_ROTATE) {
 			readbitlen = ptr[2];

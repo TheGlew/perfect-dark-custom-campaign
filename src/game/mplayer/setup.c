@@ -14,6 +14,7 @@
 #include "game/challenge.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
+#include "game/campaign.h"
 #include "game/options.h"
 #include "bss.h"
 #include "lib/snd.h"
@@ -667,6 +668,9 @@ MenuItemHandlerResult menuhandlerMpCharacterBody(s32 operation, struct menuitem 
 			}
 		}
 		g_PlayerConfigsArray[g_MpPlayerNum].base.mpbodynum = data->carousel.value;
+#ifndef PLATFORM_N64
+		campaignSimulatorCharacterChanged(g_MpPlayerNum);
+#endif
 		func0f17b8f0();
 		break;
 	case MENUOP_CHECKPREFOCUSED:
@@ -2199,6 +2203,9 @@ MenuItemHandlerResult menuhandlerMpCharacterHead(s32 operation, struct menuitem 
 {
 	if (operation == MENUOP_SET) {
 		g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum = data->carousel.value;
+#ifndef PLATFORM_N64
+		campaignSimulatorCharacterChanged(g_MpPlayerNum);
+#endif
 	}
 
 	return mpCharacterHeadMenuHandler(operation, item, data, g_PlayerConfigsArray[g_MpPlayerNum].base.mpheadnum, 1);

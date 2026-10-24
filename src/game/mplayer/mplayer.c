@@ -18,6 +18,7 @@
 #include "game/challenge.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
+#include "game/campaign.h"
 #include "game/pak.h"
 #include "bss.h"
 #include "lib/args.h"
@@ -477,6 +478,9 @@ void mpPlayerSetDefaults(s32 playernum, bool autonames)
 	}
 
 	g_PlayerConfigsArray[playernum].base.mpheadnum = mpGetMpheadnumByMpbodynum(g_PlayerConfigsArray[playernum].base.mpbodynum);
+#ifndef PLATFORM_N64
+	campaignSimulatorCharacterSeed(playernum);
+#endif
 	g_PlayerConfigsArray[playernum].base.displayoptions = MPDISPLAYOPTION_RADAR | MPDISPLAYOPTION_HIGHLIGHTTEAMS;
 	g_PlayerConfigsArray[playernum].fileguid.fileid = 0;
 	g_PlayerConfigsArray[playernum].fileguid.deviceserial = 0;
@@ -3493,6 +3497,10 @@ void mpplayerfileLoadWad(s32 playernum, struct savebuffer *buffer, s32 arg2)
 				g_PlayerConfigsArray[playernum].base.mpheadnum = MPHEAD_DARK_COMBAT;
 			}
 		}
+
+#ifndef PLATFORM_N64
+		campaignSimulatorCharacterChanged(playernum);
+#endif
 	} else {
 		savebufferReadBits(buffer, 7);
 		savebufferReadBits(buffer, 7);

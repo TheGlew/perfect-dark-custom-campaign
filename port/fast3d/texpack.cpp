@@ -40,6 +40,7 @@ struct TexpackEntry {
 
 static std::vector<TexpackEntry> s_Entries;
 static std::unordered_set<std::string> s_Missing;   /* names with no pack file */
+static std::unordered_set<std::string> s_Replaced;  /* names drawn from the pack */
 static std::unordered_set<std::string> s_Dumped;    /* names already written this run */
 static bool s_DirsReady = false;
 static std::string s_PackPath;
@@ -269,7 +270,21 @@ const uint8_t *texpackResolve(const uint8_t *rgba, uint32_t w, uint32_t h, uint3
 
     *outw = (uint32_t)rw;
     *outh = (uint32_t)rh;
+    s_Replaced.insert(name);
     return rep;
+}
+
+void texpackLogStats(void)
+{
+    static size_t replaced = 0, missing = 0;
+
+    if (s_PackPath.empty() || (s_Replaced.size() == replaced && s_Missing.size() == missing)) {
+        return;
+    }
+
+    replaced = s_Replaced.size();
+    missing = s_Missing.size();
+    sysLogPrintf(LOG_NOTE, "texpack: %d textures drawn from the pack, %d drawn with no pack file", (int)replaced, (int)missing);
 }
 
 void texpackRelease(const uint8_t *replacement)

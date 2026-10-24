@@ -31,8 +31,13 @@ extern s32 g_CampaignCarryInventory;
 extern s32 g_CampaignCarryHealth;
 extern s32 g_CampaignRetryOnDeath;
 extern s32 g_CampaignSkipCutscenes;
-extern s32 g_CampaignJointFade;        // 1: a joint's teleport happens behind the game's white screen; 0: in place
+extern s32 g_CampaignJointFade;        // 1: a joint taken in first person teleports behind the game's white screen; 0: in place
 extern s32 g_CampaignDifficulty;
+
+// pd.ini [Game] - the player's own character, chosen in the Combat Simulator
+extern s32 g_CampaignSimulatorCharacter; // 1: the solo player wears Player 1's Combat Simulator head and body
+extern s32 g_CampaignSimulatorHead;      // the choice, kept across runs (indices into the simulator's tables; -1 none)
+extern s32 g_CampaignSimulatorBody;
 
 // pd.ini [Debug] - test scaffolding for the automated soak, never on by default
 extern s32 g_CampaignDebugAutoComplete; // seconds into a stage before it is force-completed
@@ -91,7 +96,7 @@ s32 campaignLegStage(s32 stagenum);
 s32 campaignFirstLegStage(s32 stagenum);
 s32 campaignRedirectStage(s32 stagenum);
 s32 campaignLegTag(s32 tagnum);
-void campaignLegOffset(struct coord *pos);
+void campaignAnimTranslationOffset(struct coord *translate); // an absolute animation translation, into the leg's world
 s32 campaignDeferredChrBase(void);
 struct defaultobj;
 bool campaignObjIsDeferred(struct defaultobj *obj); // an object a later leg's character will carry, not yet in the world
@@ -99,6 +104,12 @@ void campaignJoint(s32 leg, bool fade);
 void campaignLoadLangBanks(s32 stagenum);
 u32 campaignObjectiveFlags(s32 index);
 bool campaignObjectiveForced(s32 index);
+
+// the player's character
+void campaignSimulatorCharacterChanged(s32 playernum); // the Combat Simulator set a player's head or body, or loaded their file
+void campaignSimulatorCharacterSeed(s32 playernum);    // the kept choice into a fresh Player 1 config
+bool campaignSimulatorCharacter(s32 *bodynum, s32 *headnum); // the solo player's body and head, when the choice applies
+void campaignLogPlayerBody(s32 bodynum, s32 headnum);  // PD_LOGCHRS=1 logs the body the player was given
 
 // AI commands 0x01e1 - 0x01e7 (commands.h)
 bool aiSetStageFlagW(void);

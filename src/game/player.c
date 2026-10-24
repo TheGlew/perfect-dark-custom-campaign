@@ -1222,6 +1222,13 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 		return;
 	}
 
+#ifndef PLATFORM_N64
+	// the character chosen in the Combat Simulator, when the ini says it is the solo player's
+	if (campaignSimulatorCharacter(bodynum, headnum)) {
+		return;
+	}
+#endif
+
 	outfit = g_Vars.currentplayer->bondtype;
 	solo = !(g_Vars.coopplayernum >= 0) || (g_Vars.currentplayer != g_Vars.coop);
 
@@ -1384,6 +1391,9 @@ void playerTickChrBody(void)
 
 		g_Vars.currentplayer->haschrbody = true;
 		playerChooseBodyAndHead(&bodynum, &headnum, &sp60);
+#ifndef PLATFORM_N64
+		campaignLogPlayerBody(bodynum, headnum);
+#endif
 
 		if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
 			weaponnum = g_DefaultWeapons[0];
@@ -2013,9 +2023,6 @@ void playerTickCutscene(bool arg0)
 	pos.x = translate.x * translatescale;
 	pos.y = translate.y * translatescale;
 	pos.z = translate.z * translatescale;
-
-	// a merged mission's later world sits elsewhere than the level it came from
-	campaignLegOffset(&pos);
 
 	mtx4LoadRotation(&rot, &rotmtx);
 

@@ -33,6 +33,7 @@ void texpackRegister(int texturenum, const void *data, uint32_t bytes,
                      int width, int height, int gbifmt, int siz, int lutmode,
                      uint32_t rowbytes, uint32_t paletteoffset, int palettecount);
 void texpackCensus(void);
+void texpackLogStats(void); /* logs how many drawn textures came from the pack, when the count changed */
 
 /* renderer side (fast3d) */
 void texpackImportBegin(const uint8_t *addr, uint32_t bytes, int fmt, int siz,

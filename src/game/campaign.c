@@ -7,6 +7,9 @@
  *   lvReset player loop (src/game/lv.c) -> campaignOnPlayerReset
  *   lvTick (src/game/lv.c)             -> campaignTick
  *   main (port/src/main.c)             -> campaignBootInit, config keys
+ *   animGetRotTranslateScale (lib/anim.c) -> campaignAnimTranslationOffset
+ *   playerChooseBodyAndHead (player.c), the Combat Simulator's character menus
+ *   and player files (mplayer/)        -> campaignSimulatorCharacter*
  *
  * The chain itself reuses the engine's own direct-to-stage path: the same
  * calls endscreenContinue makes when Deep Sea rolls into Defense.
@@ -51,6 +54,8 @@
 #include "lib/model.h"
 #include "lib/collision.h"
 #include "lib/memp.h"
+#include "game/mplayer/mplayer.h"
+#include "game/modeldef.h"
 
 extern char g_FrameDumpRequest[128]; // port/fast3d/gfx_sdl2.cpp
 #include "lib/vi.h"
@@ -65,6 +70,9 @@ s32 g_CampaignJointFade = 1;
 s32 g_CampaignDifficulty = 0;
 s32 g_CampaignDebugAutoComplete = 0;
 s32 g_CampaignDebugAutoDie = 0;
+s32 g_CampaignSimulatorCharacter = 0;
+s32 g_CampaignSimulatorHead = -1;
+s32 g_CampaignSimulatorBody = -1;
 
 #define CAMPAIGN_MAX_WEAPONS 48
 #define CAMPAIGN_NUM_AMMOTYPES 33
@@ -83,7 +91,6 @@ struct campaignloadout {
 
 static void campaignMergedReset(void);
 static void campaignTickMerged(struct player *player);
-static bool campaignIsBoundaryCutscene(void);
 static void campaignTickTestOutro(s32 elapsed);
 static void campaignTickTestTour(s32 elapsed);
 static void campaignTickTestDoorWatch(s32 elapsed);
@@ -1048,6 +1055,61 @@ static void campaignTickTestDestroy(s32 elapsed)
 }
 
 /**
+ * PD_TESTHEADS=1 loads every head model a second into the stage, so a run with
+ * Textures.Dump=1 writes every head's textures, those of the heads no stage of
+ * an ordinary dump happened to pick included.
+ */
+static void campaignTickTestHeads(void)
+{
+	static s32 state = -1; // -1 unparsed, 0 off, 1 waiting, 2 done
+
+	if (state == -1) {
+		state = getenv("PD_TESTHEADS") ? 1 : 0;
+	}
+
+	if (state == 1 && lvGetStageTime60() >= 60) {
+		s32 loaded = 0;
+		s32 i;
+
+		for (i = 0; g_HeadsAndBodies[i].filenum != 0; i++) {
+			if (g_HeadsAndBodies[i].unk00_01 && g_HeadsAndBodies[i].modeldef == NULL) {
+				g_HeadsAndBodies[i].modeldef = modeldefLoadToNew(g_HeadsAndBodies[i].filenum);
+				loaded++;
+			}
+		}
+
+		state = 2;
+		sysLogPrintf(LOG_NOTE, "campaign: test: %d head models loaded, stage memory free %u", loaded,
+				mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_ONBOARD) + mempGetPoolFree(MEMPOOL_STAGE, MEMBANK_EXPANSION));
+	}
+}
+
+/**
+ * PD_LOGPOS=1 logs the player's position, room and mode once a second, so a
+ * soak can show where a joint, an intro or a retry left them.
+ */
+static void campaignTickLogPos(struct player *player)
+{
+	static s32 enabled = -1;
+	static s32 lastlogged = -1000;
+
+	if (enabled < 0) {
+		enabled = getenv("PD_LOGPOS") != NULL;
+	}
+
+	if (lvGetStageTime60() < lastlogged) {
+		lastlogged = -1000; // the stage was reset
+	}
+
+	if (enabled && player->prop && lvGetStageTime60() - lastlogged >= 60) {
+		lastlogged = lvGetStageTime60();
+		sysLogPrintf(LOG_NOTE, "campaign: pos: tick %d leg %d tickmode %d cutscene %d pos (%.0f, %.0f, %.0f) room %d",
+				lastlogged, g_CampaignLeg, g_Vars.tickmode, g_Vars.in_cutscene,
+				player->prop->pos.x, player->prop->pos.y, player->prop->pos.z, player->prop->rooms[0]);
+	}
+}
+
+/**
  * Called every frame from lvTick.
  */
 void campaignTick(void)
@@ -1064,6 +1126,9 @@ void campaignTick(void)
 	if (player == NULL) {
 		return;
 	}
+
+	campaignTickLogPos(player);
+	campaignTickTestHeads();
 
 	if (!g_CampaignContinuous) {
 		// the stock game; only the soak's forced completion applies, so a stock
@@ -1117,7 +1182,7 @@ void campaignTick(void)
 		s_ShieldPending = false;
 	}
 
-	if (g_CampaignSkipCutscenes || campaignIsBoundaryCutscene()) {
+	if (g_CampaignSkipCutscenes) {
 		if (g_Vars.in_cutscene || g_Vars.tickmode == TICKMODE_CUTSCENE) {
 			g_CutsceneSkipRequested = true;
 		}
@@ -1307,62 +1372,26 @@ bool campaignObjIsDeferred(struct defaultobj *obj)
 }
 
 /**
- * A joint is seamless: the ending leg's outro cutscene (its outro list is
- * running, on a background chr or a character) and the new leg's intro
- * cutscene (any cutscene in the first seconds of a later leg) are skipped,
- * whatever SkipCutscenes says. The mission's own intro and ending still play.
+ * An animation's absolute translation (a cutscene camera's, or a character's
+ * in a cutscene) is authored in the current leg's level; move it to where that
+ * level's world sits in the merged one. animGetRotTranslateScale calls this on
+ * the raw value, which its callers then scale by the stage's translation
+ * factor, so the offset goes in at that scale.
  */
-static bool campaignIsBoundaryCutscene(void)
-{
-	const struct campaignmission *mission = campaignCurrentMission();
-	static s32 loggedleg = -1;
-	const char *what = NULL;
-
-	if (mission == NULL || !(g_Vars.in_cutscene || g_Vars.tickmode == TICKMODE_CUTSCENE || g_Vars.autocutplaying)) {
-		loggedleg = -1;
-		return false;
-	}
-
-	if (g_CampaignLeg > 0 && lvGetStageTime60() - s_LegStartTime60 < TICKS(900)) {
-		what = "the leg's intro";
-	} else if (g_CampaignLeg + 1 < mission->numlegs && mission->legs[g_CampaignLeg].outrolist) {
-		u8 *list = ailistFindById(mission->legs[g_CampaignLeg].outrolist);
-		s32 i;
-
-		for (i = 0; list && what == NULL && i < g_NumBgChrs; i++) {
-			if (g_BgChrs[i].ailist == list) {
-				what = "the leg's outro";
-			}
-		}
-
-		for (i = 0; list && what == NULL && i < g_NumChrSlots; i++) {
-			if (g_ChrSlots[i].chrnum >= 0 && g_ChrSlots[i].ailist == list) {
-				what = "the leg's outro";
-			}
-		}
-	}
-
-	if (what && loggedleg != g_CampaignLeg) {
-		loggedleg = g_CampaignLeg;
-		sysLogPrintf(LOG_NOTE, "campaign: leg %d: a joint cutscene (%s) is skipped", g_CampaignLeg, what);
-	}
-
-	return what != NULL;
-}
-
-/**
- * Move a position authored in the current leg's level (a cutscene camera's)
- * to where that level's world sits in the merged one.
- */
-void campaignLegOffset(struct coord *pos)
+void campaignAnimTranslationOffset(struct coord *translate)
 {
 	const struct campaignmission *mission = campaignCurrentMission();
 
-	if (mission && g_CampaignLeg >= 0 && g_CampaignLeg < mission->numlegs) {
+	if (mission && g_CampaignLeg > 0 && g_CampaignLeg < mission->numlegs) {
 		const struct campaignleg *leg = &mission->legs[g_CampaignLeg];
-		pos->x += leg->offset[0];
-		pos->y += leg->offset[1];
-		pos->z += leg->offset[2];
+
+		if (leg->offset[0] != 0 || leg->offset[1] != 0 || leg->offset[2] != 0) {
+			f32 scale = bgGetStageTranslationThing();
+
+			translate->x += leg->offset[0] / scale;
+			translate->y += leg->offset[1] / scale;
+			translate->z += leg->offset[2] / scale;
+		}
 	}
 }
 
@@ -1643,7 +1672,9 @@ static void campaignMergedReset(void)
 	}
 
 	// The checkpoint's joints run on the first tick (campaignTickMerged): the
-	// player's chr does not exist yet at reset time, and a joint moves it.
+	// player's chr does not exist yet at reset time, and a joint moves it. The
+	// tick leads lvTick, so they run before any script: the first leg's intro,
+	// gated to its leg, never starts, and the resumed leg's intro plays.
 	if (s_CheckpointPending && s_CheckpointLeg > 0 && s_CheckpointLeg < mission->numlegs) {
 		sysLogPrintf(LOG_NOTE, "campaign: merged stage 0x%02x resumes at leg %d", g_Vars.stagenum, s_CheckpointLeg);
 		s_ResumeLeg = s_CheckpointLeg;
@@ -1699,7 +1730,7 @@ static void campaignTickMerged(struct player *player)
 		return;
 	}
 
-	if (s_ResumeLeg > 0 && player->prop && player->prop->chr && player->prop->chr->model && player->haschrbody) {
+	if (s_ResumeLeg > 0 && player->prop && player->prop->chr) {
 		s32 i;
 
 		for (i = 1; i <= s_ResumeLeg; i++) {
@@ -1808,7 +1839,11 @@ bool aiIfObjectivesRangeComplete(void)
 bool aiCampaignJoint(void)
 {
 	u8 *cmd = g_Vars.ailist + g_Vars.aioffset;
-	campaignJoint(cmd[2], g_CampaignJointFade != 0);
+
+	// Behind a cutscene (the leg's outro has the camera) the player is placed
+	// at once and the next leg's intro cutscene follows; the white screen is
+	// for a joint taken in first person, with the cutscenes skipped.
+	campaignJoint(cmd[2], g_CampaignJointFade != 0 && g_Vars.tickmode != TICKMODE_CUTSCENE);
 	g_Vars.aioffset += 3;
 	return false;
 }
@@ -1837,6 +1872,66 @@ bool aiIfCampaignLegEq(void)
 	}
 
 	return false;
+}
+
+
+/*
+ * ---------------------------------------------------------------------------
+ * The player's own character
+ * ---------------------------------------------------------------------------
+ * The Combat Simulator's player setup chooses a head and a body for Player 1.
+ * The choice is kept in the ini (Game.SimulatorHead and SimulatorBody), so it
+ * outlives the program and seeds a fresh Player 1 config, and with
+ * Game.SimulatorCharacter=1 it is the body the solo player wears: in cutscenes,
+ * in the death camera, and as the hands that hold the gun.
+ */
+
+static bool campaignSimulatorChoiceValid(void)
+{
+	return g_CampaignSimulatorBody >= 0 && g_CampaignSimulatorBody < (s32)mpGetNumBodies()
+		&& g_CampaignSimulatorHead >= 0 && g_CampaignSimulatorHead < mpGetNumHeads2();
+}
+
+void campaignSimulatorCharacterChanged(s32 playernum)
+{
+	if (playernum == 0) {
+		g_CampaignSimulatorHead = g_PlayerConfigsArray[0].base.mpheadnum;
+		g_CampaignSimulatorBody = g_PlayerConfigsArray[0].base.mpbodynum;
+	}
+}
+
+void campaignSimulatorCharacterSeed(s32 playernum)
+{
+	if (playernum == 0 && campaignSimulatorChoiceValid()) {
+		g_PlayerConfigsArray[0].base.mpheadnum = g_CampaignSimulatorHead;
+		g_PlayerConfigsArray[0].base.mpbodynum = g_CampaignSimulatorBody;
+	}
+}
+
+bool campaignSimulatorCharacter(s32 *bodynum, s32 *headnum)
+{
+	if (g_CampaignSimulatorCharacter && !g_Vars.normmplayerisrunning && g_Vars.currentplayer == g_Vars.bond
+			&& campaignSimulatorChoiceValid()) {
+		*bodynum = mpGetBodyId(g_CampaignSimulatorBody);
+		*headnum = mpGetHeadId(g_CampaignSimulatorHead);
+		return true;
+	}
+
+	return false;
+}
+
+void campaignLogPlayerBody(s32 bodynum, s32 headnum)
+{
+	static s32 enabled = -1;
+
+	if (enabled < 0) {
+		enabled = getenv("PD_LOGCHRS") != NULL;
+	}
+
+	if (enabled) {
+		sysLogPrintf(LOG_NOTE, "player body %d head %d (simulator character %d: head %d body %d)", bodynum, headnum,
+				g_CampaignSimulatorCharacter, g_CampaignSimulatorHead, g_CampaignSimulatorBody);
+	}
 }
 
 #endif

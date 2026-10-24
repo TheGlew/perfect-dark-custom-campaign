@@ -2128,6 +2128,10 @@ void lvTick(void)
 		// textures that loaded after the stage reset (weapons, props spawned later)
 		texpackCensus();
 	}
+
+	if ((g_Vars.lvframenum % 600) == 0) {
+		texpackLogStats();
+	}
 #endif
 
 	for (j = 0; j < PLAYERCOUNT(); j++) {

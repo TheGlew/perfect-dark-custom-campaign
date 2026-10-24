@@ -484,32 +484,47 @@ class Merger:
             leg.lists[m.group(2)] = m.group(3)
             leg.list_order.append(m.group(2))
         # A later leg's background scripts (ids 0x1000 and up run chr-less from stage start)
-        # wait for their leg; an intro's runs only while its leg is the current one. A
+        # wait for their leg; an intro's runs only while its leg is the current one, the
+        # first leg's included, so a retry resumed at a later leg never replays it. A
         # script that only watches objects standing from load (a checker that marks a
         # thing destroyed) runs from load, so what the player does to that thing in an
         # earlier leg is credited when it happens.
         leg.early_lists = []
-        if leg.index > 0:
-            prefix = leg.prefix.lower()
-            for arr, lid in leg.table:
-                name = prefix + arr
-                if lid >= 0x1000 and name in leg.lists and self.runs_early(leg, name, lid):
-                    leg.early_lists.append(arr)
-                    continue
-                if lid >= 0x1000 and name in leg.lists and not leg.lists[name].lstrip().startswith("beginloop(0xfe)"):
-                    check = "if_campaign_leg_eq" if lid in leg.intro_list_ids else "if_campaign_leg_ge"
-                    gate = "\n\tbeginloop(0xfe)\n\t\t%s(%d, /*goto*/ 0xfd)\n\tendloop(0xfe)\n\n\tlabel(0xfd)\n" % (check, leg.index)
-                    leg.lists[name] = gate + leg.lists[name]
+        prefix = leg.prefix.lower()
+        for arr, lid in leg.table:
+            name = prefix + arr
+            if lid < 0x1000 or name not in leg.lists:
+                continue
+            if leg.index == 0 and lid not in leg.intro_list_ids:
+                continue  # the first leg's other scripts run from load, as in its level
+            if leg.index > 0 and self.runs_early(leg, name, lid):
+                leg.early_lists.append(arr)
+                continue
+            if not leg.lists[name].lstrip().startswith("beginloop(0xfe)"):
+                check = "if_campaign_leg_eq" if lid in leg.intro_list_ids else "if_campaign_leg_ge"
+                gate = "\n\tbeginloop(0xfe)\n\t\t%s(%d, /*goto*/ 0xfd)\n\tendloop(0xfe)\n\n\tlabel(0xfd)\n" % (check, leg.index)
+                leg.lists[name] = gate + leg.lists[name]
         for m in re.finditer(r"(?s)^(s32 (l\d+_path[0-9a-z_]+)\[\] = \{)(.*?)\n\};", text, re.M):
             leg.path_arrays[m.group(2)] = m.group(3)
-        # the success exit becomes the joint
-        if not leg.final and leg.outro:
+        # The outro runs only while its leg is the current one: a finished leg's objectives
+        # are held complete, so its end checker would start the ending again after a
+        # joint or a retry resumed at a later leg. The success exit becomes the joint.
+        if leg.outro:
             name = leg.prefix.lower() + leg.outro
             body = leg.lists[name]
-            body2 = re.sub(r"(?m)^(\s*)end_level\b", r"\1campaign_joint(%d)" % (leg.index + 1), body)
-            if body2 == body:
-                raise ValueError("no end_level in outro list %s of leg %s" % (leg.outro, leg.name))
-            leg.lists[name] = body2
+            if "label(0xfd)" in body:
+                raise ValueError("outro list %s of leg %s uses label 0xfd" % (leg.outro, leg.name))
+            # no endlist before the label: the engine's label search stops at one, so the jump
+            # would fail and the script spin; set_ailist on the script itself switches at once
+            guard = "\n\tif_campaign_leg_eq(%d, /*goto*/ 0xfd)\n\tset_ailist(CHR_SELF, GAILIST_IDLE)\n\tlabel(0xfd)\n" % leg.index
+            if not body.lstrip().startswith("if_campaign_leg_eq"):
+                body = guard + body
+            if not leg.final:
+                body2 = re.sub(r"(?m)^(\s*)end_level\b", r"\1campaign_joint(%d)" % (leg.index + 1), body)
+                if body2 == body:
+                    raise ValueError("no end_level in outro list %s of leg %s" % (leg.outro, leg.name))
+                body = body2
+            leg.lists[name] = body
         # record the intro
         for start, end, name, args in find_calls(leg.intro_body, {"spawn", "intro_weapon", "ammo", "outfit"}):
             leg.intro.append((name, args))
